@@ -1,11 +1,11 @@
-"""MysteryChain - case assembly (v4: no ear, shallow stepped tab, key slot).
+"""MysteryChain - case assembly (v5: display header removed -> shallow tab lug, key slot).
 
 Coordinates: origin = display center, back face z=0, front (display) face z=H, +Z toward the viewer.
 Looking at the display: +X right, +Y up (display tab + keyring lug at the top).
 Depths "d" are measured inward from the front face (mm); z = H - d.
 
 Layers (front to back):
-  bezel | display (LCD) | display PCB | rear component clearance + header |
+  bezel | display (LCD) | display PCB | rear component clearance + display wires |
   XIAO + motor + switch + button + passives | midframe (deck) | battery | back cover
 
 Assembly order (all from the back): display (tab into the pocket on the lug side) -> midframe (+XIAO, motor) ->
@@ -33,7 +33,7 @@ MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 # ---------------------------------------------------------------- dimensions (mm)
 # GC9A01 1.28" round module (measured from the Teyleten Robot STEP)
-DISP_STEP = HERE / "parts" / "gc9a01_teyleten.step"
+DISP_STEP = HERE / "parts" / "gc9a01_teyleten_nopins.step"   # vendor STEP minus the 7-pin header
 DISP_PCB_D = 38.1
 MODULE_L = 45.5          # round PCB + rectangular tab, total length
 TAB_W = 22.86
@@ -44,8 +44,7 @@ LCD_STACK = 1.626        # PCB front -> polarizer front (model: no tape)
 GLASS_GAP = 0.3          # polarizer - bezel gap (also absorbs the real tape thickness)
 DISP_REAR = 3.25         # display PCB back -> XIAO = 3.0 net (XIAO STEP bottom protrusion 0.25); rear SOT-23 LDO <=1.45
 WIN_D = 33.0             # viewing window (polarizer Ø32.4 + 0.3 per side)
-HDR_HALF_X, HDR_Y = 8.89, (23.796, 26.196)   # 7-pin header plastic (PCB back)
-HDR_DEPTH = 8.3                              # pin tip, from the PCB back
+TAB_REAR = 2.5           # behind the tab pads: header removed, solder/pin stubs <=1 + 30AWG wires bent flat
 SOLDER_HALF_X, SOLDER_Y, SOLDER_H = 8.52, (24.36, 26.14), 1.164   # front-side solder joints
 
 # XIAO nRF52840 Sense (measured from the official Seeed STEP)
@@ -79,7 +78,6 @@ BEZEL_T = 1.2
 DECK_T = 1.0
 COVER_T = 1.2
 KEY_WEB, KEY_SLOT_W, KEY_SLOT_L, KEY_BAR = 1.2, 3.0, 10.0, 2.4   # tab pocket | slot | bridge
-WIRE_PAY = 1.0             # pin tip -> tab cover (wires are soldered beside the pins)
 
 # ---------------------------------------------------------------- derived
 RI = DISP_PCB_D / 2 + FIT
@@ -103,8 +101,8 @@ TAB_HALF = TAB_W / 2 + FIT
 TAB_TOP = MODULE_L - DISP_PCB_D / 2 + FIT
 KEY_SLOT_CY = TAB_TOP + KEY_WEB + KEY_SLOT_W / 2
 LUG_HALF, LUG_TOP = TAB_HALF + WALL, TAB_TOP + KEY_WEB + KEY_SLOT_W + KEY_BAR
-# tab region only wraps the pins: its back face is shallower than the body (stepped)
-D_LUG_IN = D_PCB_BACK + HDR_DEPTH + WIRE_PAY
+# tab region only wraps the tab + its wires: its back face is shallower than the body (stepped)
+D_LUG_IN = D_PCB_BACK + TAB_REAR
 Z_LUG_BACK = z(D_LUG_IN + COVER_T)
 
 # XIAO placement: component side back (-Z), USB-C down (-Y)
@@ -121,7 +119,8 @@ CATCH_Z1 = CATCH_Z0 + 1.2        # arm tip (lead-in ramp)
 GROOVE = (CATCH_Z0 - 0.9, CATCH_Z1 + 0.1)
 HOOK_W = 4.0
 HOOK_ANGLES = (0, 180, 225, 315)   # 270 hits the USB plug, 240/300 hit battery corners
-TAB_HOOK_X, TAB_HOOK_W = 10.0, 2.0   # tab-tip hooks sit outside the pin row (±7.95)
+TAB_HOOK_X, TAB_HOOK_W = 10.0, 2.0   # tab-tip hooks sit outside the pad row (±7.95)
+TAB_HOOK_R = TAB_TOP + 1.35          # catch wall beyond the tab tip: arms clear the PCB by 0.3 (0.15 deflected)
 TAB_DZ = Z_LUG_BACK                  # tab hooks rise from the stepped cover plate
 GROOVE_R = RI + 0.7               # >=0.2 clearance including outer corners
 
@@ -169,7 +168,10 @@ def make_front_housing():
         # tab + header + wire pocket, open to the back (display inserts from the back)
         zbox(-TAB_HALF, TAB_HALF, 0, TAB_TOP, -1, z(D_PCB_FRONT)),
         zcyl(0, 0, GROOVE_R, GROOVE[0], GROOVE[1]),                          # hook groove
-        *[zbox(x - 1.5, x + 1.5, TAB_TOP - 1, TAB_TOP + 0.7, TAB_DZ + GROOVE[0], TAB_DZ + GROOVE[1])
+        # tab-tip hook recesses (arms rise beside the PCB tip, past the shallow tab cavity) + catch grooves
+        *[zbox(x - 1.5, x + 1.5, TAB_TOP - 0.1, TAB_HOOK_R, -1, TAB_DZ + CATCH_Z1 + 0.3)
+          for x in (-TAB_HOOK_X, TAB_HOOK_X)],
+        *[zbox(x - 1.5, x + 1.5, TAB_TOP, TAB_HOOK_R + 0.7, TAB_DZ + GROOVE[0], TAB_DZ + GROOVE[1])
           for x in (-TAB_HOOK_X, TAB_HOOK_X)],
         # USB-C plug overmold pocket, down to the receptacle face
         zbox(-USB_POCKET_W / 2, USB_POCKET_W / 2, -RO - 1, USB_FACE_Y,
@@ -239,13 +241,15 @@ def make_back_cover():
     th = TAB_HALF - 0.2
     # stepped cover: disc + fill for the body wall notch + tab back plate (battery bay left open)
     notch = zbox(-th, th, 0, RO + 1, 0, Z_LUG_BACK).intersect(Cylinder(RO, H, align=MIN))
-    plate = zbox(-th, th, 0, TAB_TOP - 0.2, Z_LUG_BACK, Z_LUG_BACK + COVER_T)
+    plate = zbox(-th, th, 0, TAB_TOP - 0.2, Z_LUG_BACK, Z_LUG_BACK + COVER_T).fuse(*[
+        zbox(x - 1.3, x + 1.3, TAB_TOP - 0.3, TAB_HOOK_R - 0.2, Z_LUG_BACK, Z_LUG_BACK + COVER_T)
+        for x in (-TAB_HOOK_X, TAB_HOOK_X)])   # tongues under the tab-tip hook arms
     cover = Cylinder(RI - 0.2, COVER_T, align=MIN).fuse(
-        notch.fuse(plate).cut(zcyl(0, 0, RI - 0.2, COVER_T, H)))
+        notch.fuse(plate).cut(zcyl(0, 0, RI, COVER_T, H)))   # flush with the wall: midframe keeps 0.2
     adds = []
     # (wall, angle, x offset, width, base z): 4 perimeter hooks + 2 tab-tip hooks
     hooks = [(RI, a, 0, HOOK_W, 0) for a in HOOK_ANGLES]
-    hooks += [(TAB_TOP, 90, x, TAB_HOOK_W, TAB_DZ) for x in (-TAB_HOOK_X, TAB_HOOK_X)]
+    hooks += [(TAB_HOOK_R, 90, x, TAB_HOOK_W, TAB_DZ) for x in (-TAB_HOOK_X, TAB_HOOK_X)]
     for r_wall, a, dx, w, dz in hooks:
         r_out = r_wall - 0.35
         c0, c1 = dz + CATCH_Z0, dz + CATCH_Z1
@@ -322,4 +326,4 @@ def gen_step():
 
 if __name__ == "__main__":
     print(f"H={H:.2f}  OD={2 * RO:.2f}  height={RO + LUG_TOP:.2f}  lug_depth={H - Z_LUG_BACK:.2f}  "
-          f"pin_tip_depth={D_PCB_BACK + HDR_DEPTH:.2f}  cover_front_depth={D_COVER_FRONT:.2f}")
+          f"tab_cavity_depth={D_LUG_IN:.2f}  cover_front_depth={D_COVER_FRONT:.2f}")

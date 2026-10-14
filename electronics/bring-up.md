@@ -166,7 +166,7 @@ The printed case must be ready. **Measure wire lengths in the printed case**, do
 2. **Desolder the switch** from the LilyPad board. Re-check continuity in both positions, find common and ON legs, cut the unused leg.
 3. **Motor driver in free air (dead-bug):** shorten the BC337 legs and lay it on its side; 10 kΩ across B–E, 1 kΩ to B; diode band to the + node (3V3), other end to C; 100 nF and 100 µF across + and −. Heat-shrink every joint, then wrap the group in Kapton. **Total height ≤ 4.3 mm.** Option b: AO3401A + 100 kΩ go here too.
 4. Short check, then USB and T6.
-5. **Shorten the display wires.** Solder them *beside* the header pins; don't cut the pins. Short check, then T4. With short wires also try `SPI_HZ = 0` (library default); if clean, use it in T8 too.
+5. **Remove the display header, shorten the display wires.** Pry the black plastic spacer off the header, cut the pins to ≤ 1 mm (don't desolder: pads can lift), solder the wires to the stubs and bend them flat along the PCB back. The case leaves 2.5 mm behind the tab. Short check, then T4. With short wires also try `SPI_HZ = 0` (library default); if clean, use it in T8 too.
 6. **Button and switch.** Short check, then T5.
 7. **Full regression:** T8 on battery, every phase 5 test.
 

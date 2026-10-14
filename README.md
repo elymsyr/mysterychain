@@ -6,7 +6,7 @@ A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42
   <img src="mechanical/renders/front.png" alt="Case, front view" width="360">
 </p>
 
-**Status:** working on the breadboard (four scenes, BLE messaging, Android app). Case v4 is ready for its first print. The LiPo isn't bought yet, so nothing is assembled in the case.
+**Status:** working on the breadboard (four scenes, BLE messaging, Android app). Case v5 (display header removed, shallow keyring lug) is ready for its first print. The LiPo isn't bought yet, so nothing is assembled in the case.
 
 ## Hardware
 
