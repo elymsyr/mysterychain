@@ -17,6 +17,8 @@ All dimensions below come from [`pet_case.step.py`](pet_case.step.py) (build123d
 | `pet_case.step.py` | Parametric source (build123d) |
 | `pet_case.step` | Assembly STEP: printed parts + electronics + keep-out zones. Import into Onshape or any CAD. |
 | `print_parts.py` | Exports the print files |
+| `pet_case_drawing.pdf` | 2D technical drawings, A3 2:1, first-angle: assembly + parts list, front housing, midframe, back cover |
+| `pet_case.dxf.py` / `pet_case.dxf` | Drawing source (hidden-line projections of the model, ezdxf) and its DXF export with editable dimensions |
 | `print/` | `.3mf` and `.stl` per part, already in print orientation |
 | `parts/` | Vendor STEP models: Seeed XIAO nRF52840 Sense, Teyleten GC9A01 (`_nopins` = same model with the 7-pin header removed; the case uses this one) |
 | `archive/pet_case_v2.py`, `archive/pet_case_v4.py` | Earlier designs, kept for reference (v4 = header pins kept, 15.23 deep lug) |
@@ -158,6 +160,8 @@ Uses the [text-to-cad](https://github.com/earthtojake/text-to-cad) `cad` skill s
 C=~/.claude/plugins/cache/text-to-cad/cad/0.4.19/skills/cad/scripts
 ~/.venvs/cad/bin/python $C/gen pet_case.step.py --write    # STEP
 ~/.venvs/cad/bin/python print_parts.py                     # STL + 3MF
+~/.venvs/cad/bin/python $C/../../dxf/scripts/gen pet_case.dxf.py --write   # DXF drawing
+~/.venvs/cad/bin/python pet_case.dxf.py                    # PDF drawing
 ~/.venvs/cad/bin/python $C/inspect interfere pet_case.step --tolerance 0.0001 --format text
 ```
 
