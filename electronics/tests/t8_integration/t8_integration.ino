@@ -5,7 +5,7 @@
 #include <Adafruit_GC9A01A.h>
 #include <LSM6DS3.h>
 
-const uint8_t BTN = D0, TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, CHG = 23;
+const uint8_t BTN = D0, TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, DISP_PWR = D7, CHG = 23;
 const uint32_t SPI_HZ = 8000000;     // value that worked in T4
 const float VBAT_CAL = 1.000;        // value found in T7
 const float SHAKE_G = 0.8;
@@ -62,6 +62,9 @@ void setup() {
   analogSampleTime(40);
   Serial.begin(115200);
 
+  pinMode(DISP_PWR, OUTPUT);
+  digitalWrite(DISP_PWR, LOW);  // Q2 on (harmless before Q2 is fitted)
+  delay(50);
   tft.begin(SPI_HZ);
   tft.fillScreen(GC9A01A_BLACK);
   tft.setTextColor(GC9A01A_WHITE, GC9A01A_BLACK);

@@ -4,9 +4,8 @@ To generate (the system python's numpy is too old for matplotlib, use a venv):
     python3 -m venv .venv && .venv/bin/pip install schemdraw matplotlib && .venv/bin/python schematic.py
 Tested with: schemdraw 0.23, matplotlib 3.10.9
 Output (this folder):
-    schematic.svg/.png                with Q2, transparent background
-    schematic_white.svg/.png          with Q2, white background
-    schematic_no_q2_white.svg/.png    no Q2/R3, display VCC straight to 3V3, white background
+    schematic.svg/.png                transparent background
+    schematic_white.svg/.png          white background
 Source of truth: ../README.md (pinout, motor driver, power)
 """
 from pathlib import Path
@@ -29,7 +28,7 @@ def unused(xy, side, s='unused'):
          halign='left' if side == 'right' else 'right')
 
 
-def draw(with_q2):
+def draw():
     d = schemdraw.Drawing(show=False)
     with d:
         d.config(fontsize=11, unit=2.5)
@@ -59,12 +58,8 @@ def draw(with_q2):
         dx = 17.0  # x of the display pin ends
         elm.Line().at(x.D10).to((dx, x.D10.y)).label('SPI MOSI', fontsize=9)
         elm.Line().at(x.D8).to((dx, x.D8.y)).label('SPI SCK', fontsize=9)
-        if with_q2:
-            elm.Line().at(x.D7).right(1.5)
-            elm.Tag().label('LCD_EN', fontsize=9)
-            text((x.D7.x + 0.2, x.D7.y - 0.55), '(only if Q2 is fitted)', 8, color='gray', halign='left')
-        else:
-            unused(x.D7, 'right')
+        elm.Line().at(x.D7).right(1.5)
+        elm.Tag().label('LCD_EN', fontsize=9)
 
         # ---- U2: GC9A01 display (pin no. = physical header order) ----
         # slot 2 empty: SDA lines up with U1 D10, SCL with D8
@@ -78,43 +73,32 @@ def draw(with_q2):
         elm.Line().at(u2.GND).left(1.0)
         elm.Ground()
 
-        if with_q2:
-            # ---- Q2 (optional): display power switch, D7 LOW = display on ----
-            qx = dx - 4.0
-            elm.Line().at(u2.VCC).left(4.0)
-            # PFet's natural orientation is vertical: source up, drain down; reverse() puts the gate on the left
-            q2 = elm.PFet(bulk=False).right().reverse().anchor('drain').at((qx, u2.VCC.y + 0.6))
-            text((qx + 1.1, q2.gate.y), 'Q2\nAO3401A', 11, halign='left')
-            elm.Line().at((qx, u2.VCC.y)).to(q2.drain)
-            elm.Dot().at((qx, u2.VCC.y))
-            top = (qx, q2.source.y + 1.4)
-            elm.Line().at(q2.source).to(top)
-            elm.Dot().at(top)
-            elm.Vdd().at(top).label('3V3')
-            gx = q2.gate.x - 1.0
-            elm.Line().at(q2.gate).to((gx, q2.gate.y))
-            gdot = elm.Dot().at((gx, q2.gate.y))
-            r3 = elm.Resistor().at((gx, q2.gate.y)).to((gx, top[1])).label('R3\n100 kΩ', loc='bottom')
-            elm.Line().at((gx, top[1])).to(top)
-            elm.Line().at(gdot.center).left(1.0)
-            elm.Tag().left().label('LCD_EN', fontsize=9)
-            elm.EncircleBox([q2, r3], padx=0.8, pady=0.4).linestyle('--').color('gray').label('OPTIONAL', loc='top', fontsize=9, color='gray')
-            # without Q2: 3V3 straight to VCC
-            bx = qx + 3.4
-            elm.Line().at(top).to((bx, top[1])).linestyle(':').color('gray')
-            elm.Line().at((bx, top[1])).to((bx, u2.VCC.y)).linestyle(':').color('gray')
-            elm.Dot().at((bx, u2.VCC.y)).color('gray')
-            text((bx + 0.2, (top[1] + u2.VCC.y) / 2), 'bridge if\nno Q2', 8, color='gray', halign='left')
-        else:
-            elm.Line().at(u2.VCC).left(1.2)
-            elm.Vdd().label('3V3')
+        # ---- Q2: display power switch, D7 LOW = display on (required: no slide switch, the backlight has no pin) ----
+        qx = dx - 4.0
+        elm.Line().at(u2.VCC).left(4.0)
+        # PFet's natural orientation is vertical: source up, drain down; reverse() puts the gate on the left
+        q2 = elm.PFet(bulk=False).right().reverse().anchor('drain').at((qx, u2.VCC.y + 0.6))
+        text((qx + 1.1, q2.gate.y), 'Q2\nAO3401A', 11, halign='left')
+        elm.Line().at((qx, u2.VCC.y)).to(q2.drain)
+        elm.Dot().at((qx, u2.VCC.y))
+        top = (qx, q2.source.y + 1.4)
+        elm.Line().at(q2.source).to(top)
+        elm.Dot().at(top)
+        elm.Vdd().at(top).label('3V3')
+        gx = q2.gate.x - 1.0
+        elm.Line().at(q2.gate).to((gx, q2.gate.y))
+        gdot = elm.Dot().at((gx, q2.gate.y))
+        elm.Resistor().at((gx, q2.gate.y)).to((gx, top[1])).label('R3\n100 kΩ', loc='bottom')
+        elm.Line().at((gx, top[1])).to(top)
+        elm.Line().at(gdot.center).left(1.0)
+        elm.Tag().left().label('LCD_EN', fontsize=9)
 
         # ---- U1 left: button and display control lines ----
         elm.Line().at(x.D0).left(0.8)
-        elm.Button().left().label('SW2\ntact button', loc='top')
+        elm.Button().left().label('SW1\npower / tact button', loc='top')
         elm.Line().left(0.6)
         elm.Ground()
-        text((x.D0.x - 0.3, x.D0.y - 0.45), 'internal pull-up', 8, color='gray', halign='right')
+        text((x.D0.x - 0.3, x.D0.y - 0.7), 'internal pull-up', 8, color='gray', halign='right')
         for n, net in (('D1', 'LCD_CS'), ('D2', 'LCD_DC'), ('D3', 'LCD_RST')):
             elm.Line().at(getattr(x, n)).left(1.0)
             elm.Tag().left().label(net, fontsize=9)
@@ -151,10 +135,8 @@ def draw(with_q2):
         elm.Ground()
         elm.Dot().at((dxx, rail))
 
-        # ---- Battery and power switch (BAT pads on the underside of the XIAO) ----
-        elm.Line().at(x.BATP).down(1.0)
-        elm.Switch().down(3.0).label('SW1\nslide switch\n(EG1390)', loc='bottom', ofst=(0, 0.3))
-        elm.Line().down(0.6)
+        # ---- Battery, through the battery switch SW2 to the BAT pads on the underside of the XIAO ----
+        elm.Switch().at(x.BATP).down(1.6).label('SW2\nbattery switch\nEG1390', loc='bottom', ofst=(0, 0.2))
         b1 = elm.BatteryCell().down(3.0).label('B1\nLiPo 402030\n3.7 V ~200 mAh\nprotected (PCM)', loc='bottom', ofst=(0, 0.3))
         text((b1.center.x - 0.45, b1.center.y + 0.35), '+', 12)  # long plate = positive
         bb = elm.Line().down(0.6)
@@ -166,29 +148,28 @@ def draw(with_q2):
         text((x.BATN.x + 0.3, x.BATN.y - 1.0), 'BAT− = GND', 8, color='gray', halign='left')
 
         # ---- title and notes ----
-        title_y = 20.0 if with_q2 else 17.0
-        title = 'MysteryChain — schematic' + ('' if with_q2 else ', without display power switch')
-        text((-13.5, title_y), title + '  (v1, 14 Oct 2026)', 16, halign='left')
+        title_y = 20.0
+        text((-13.5, title_y), 'MysteryChain — schematic  (v3, 15 Oct 2026)', 16, halign='left')
         text((-13.5, title_y - 0.9), 'Pinout and notes: electronics/README.md · Build and tests: electronics/bring-up.md', 9,
              color='dimgray', halign='left')
         notes = [
-            'Labels with the same name (LCD_CS, LCD_DC, LCD_RST' + (', LCD_EN' if with_q2 else '') + ') are connected. '
-            'All 3V3 and GND symbols are one net.',
+            'Labels with the same name (LCD_CS, LCD_DC, LCD_RST, LCD_EN) are connected. All 3V3 and GND symbols are one net.',
             'Q1 BC337 legs: flat face toward you, legs down, left to right C–B–E (verify on your part with a diode test).',
             'D1 band (cathode) goes to 3V3. Reversed, Q1 shorts 3V3 to GND when it turns on.',
-            'Solder C1, C2 and D1 close to the motor and the 3V3 node. A ceramic C2 has no polarity; on tantalum the band is +.',
-            'Q2 and R3 are optional (bring-up phase 5, option b). Without them display VCC goes straight to 3V3 and D7 stays unused.'
-            if with_q2 else
-            'The display backlight is on whenever VCC is present (no BL pin): the display draws current even in System OFF. '
-            'Turn SW1 OFF to shut down completely.',
-            'With SW1 OFF the battery is fully disconnected: the board draws nothing from it, and it does not charge either.',
+            'Solder C1, C2 and D1 close to the motor and the 3V3 node. Use a ceramic C2: the battery stays connected while off, '
+            'and a tantalum may leak up to ~6 µA (0.01·C·V).',
+            'Daily on/off is SW1 in firmware: display pins LOW, Q2 off, System OFF; hold SW1 ~1 s to wake, 3 s to turn off; '
+            'USB plug-in also wakes it. SW2 (reached from the back, under tape) disconnects the battery for storage, '
+            'water or a hang. It charges only with SW2 on (the charger is on the XIAO side of SW2).',
+            'Q2 cuts the display: its backlight has no pin and draws ~15–25 mA whenever VCC is present. '
+            'R3 keeps it off while D7 is not driven (reset, boot, System OFF with D7 HIGH). AO3401A SOT-23: 1 G, 2 S, 3 D.',
             'XIAO pins 1–14 are the edge pads, drawn as seen from the component side (USB-C up). '
             'In the case the component side faces the back, so seen from the front the left and right rows swap. BAT+ and BAT− are underside pads.',
             'Leave D9 unconnected: the display library claims it as MISO when it starts SPI. '
             '5V is USB 5 V; never connect the battery there.',
             'Display header pin order varies by vendor; wire by the labels printed on the board.',
         ]
-        text((-13.5, -10.0), 'Notes\n' + '\n'.join(f'{i}. {n}' for i, n in enumerate(notes, 1)), 9, halign='left', valign='top')
+        text((-13.5, -7.0), 'Notes\n' + '\n'.join(f'{i}. {n}' for i, n in enumerate(notes, 1)), 9, halign='left', valign='top')
     return d
 
 
@@ -197,19 +178,21 @@ U2_PINS = ['VCC', 'GND', 'RST', 'CS', 'DC', 'SDA', 'SCL']
 # Expected connections (electronics/README.md). On two-terminal parts .1 = the end the drawing starts from:
 # D1.1 anode, D1.2 cathode; B1.1 positive; C2.1 positive; M1.1 collector side.
 EXPECTED = [
-    {'GND', 'U1.GND', 'U1.BATN', 'U2.GND', 'SW2.2', 'R2.2', 'Q1.emitter', 'C1.2', 'C2.2', 'B1.2'},
-    {'3V3', 'U1.V33', 'M1.2', 'D1.2', 'C1.1', 'C2.1'},
+    {'GND', 'U1.GND', 'U1.BATN', 'U2.GND', 'SW1.2', 'R2.2', 'Q1.emitter', 'C1.2', 'C2.2', 'B1.2'},
+    {'3V3', 'U1.V33', 'M1.2', 'D1.2', 'C1.1', 'C2.1', 'Q2.source', 'R3.2'},
+    {'U2.VCC', 'Q2.drain'},
+    {'LCD_EN', 'U1.D7', 'Q2.gate', 'R3.1'},
     {'LCD_CS', 'U1.D1', 'U2.CS'},
     {'LCD_DC', 'U1.D2', 'U2.DC'},
     {'LCD_RST', 'U1.D3', 'U2.RST'},
     {'U1.D10', 'U2.SDA'},
     {'U1.D8', 'U2.SCL'},
-    {'U1.D0', 'SW2.1'},
+    {'U1.D0', 'SW1.1'},
     {'U1.D6', 'R1.1'},
     {'R1.2', 'R2.1', 'Q1.base'},
     {'Q1.collector', 'M1.1', 'D1.1'},
-    {'U1.BATP', 'SW1.1'},
-    {'SW1.2', 'B1.1'},
+    {'U1.BATP', 'SW2.1'},
+    {'SW2.2', 'B1.1'},
 ]
 
 
@@ -289,13 +272,8 @@ def netlist(d):
     return [n for n in nets.values() if len(n) > 1], problems
 
 
-def check(d, with_q2):
+def check(d):
     expected = [set(n) for n in EXPECTED]
-    if with_q2:
-        expected[1] |= {'Q2.source', 'R3.2'}
-        expected += [{'U2.VCC', 'Q2.drain'}, {'LCD_EN', 'U1.D7', 'Q2.gate', 'R3.1'}]
-    else:
-        expected[1].add('U2.VCC')
     nets, problems = netlist(d)
     got = {frozenset(n) for n in nets}
     want = {frozenset(n) for n in expected}
@@ -308,13 +286,9 @@ def check(d, with_q2):
 
 
 if __name__ == '__main__':
-    d = draw(with_q2=True)
-    print('with Q2:   ', check(d, True), 'nets, match expected')
+    d = draw()
+    print(check(d), 'nets, match expected')
     d.save(f'{OUT}.svg')
     d.save(f'{OUT}.png', dpi=150)
     d.save(f'{OUT}_white.svg', transparent=False)  # for dark-theme viewers and printing
     d.save(f'{OUT}_white.png', transparent=False, dpi=150)
-    d = draw(with_q2=False)
-    print('without Q2:', check(d, False), 'nets, match expected')
-    d.save(f'{OUT}_no_q2_white.svg', transparent=False)
-    d.save(f'{OUT}_no_q2_white.png', transparent=False, dpi=150)

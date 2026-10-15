@@ -19,12 +19,13 @@ from ezdxf.enums import TextEntityAlignment
 
 HERE = Path(__file__).resolve().parent
 pc = load_source_module(HERE / "pet_case.step.py")
+up = load_source_module(HERE / "usb_plug.step.py")
 
 SCALE = 2.0
 SW, SH = 420 / SCALE, 297 / SCALE      # A3 landscape in model units
 MM = 1 / SCALE                         # 1 mm on paper, in model units
 SHEET_GAP = 20
-REV, DATE, DRAWN = "v5", "2026-10-14", "O. Eren"
+REV, DATE, DRAWN = "v6", "2026-10-15", "O. Eren"
 FONT = "LiberationSans"
 
 H, RI, RO = pc.H, pc.RI, pc.RO
@@ -442,7 +443,7 @@ def sheet_front_housing(doc, idx, n):
     sh.callout(B.p(*dc), dr, "C")
     sh.label(B.p(0, 0, H + 9), "SECTION B-B")
 
-    # detail C (5:1): hook groove + power switch slot, +X wall
+    # detail C (5:1): hook groove + USB plug anchor slot, +X wall
     s = 5 / SCALE
     C = sh.view(TOP, 86, 34, s=s, pivot=dc)
     sh.section(part, C, crop=(dc, dr))
@@ -469,9 +470,9 @@ def sheet_front_housing(doc, idx, n):
     sh.text(sh.at(183, 94), "ISOMETRIC (1:1)", h=3.5)
 
     sh.frame(PROJECT, "FRONT HOUSING", "MC-M-002", idx + 1, n, notes=NOTES_COMMON + (
-        "4. Window %%c33 is centred 0.335 below the body axis (toward USB-C).\\P"
+        "4. Window %%c34.6 (0.4 lip over the glass edge) is centred 0.335 below the body axis (toward USB-C).\\P"
         "5. Key channels 2x 4 wide at 45 and 135 deg; pry notch 5 wide x 0.8 at 225 deg.\\P"
-        "6. Power switch slot 3.4 x 1.4 (+X); button hole 3.6 x 2.0 with %%c6.4 x 0.6 "
+        "6. USB plug anchor slot 3.4 x 1.4 + thumb recess (+X, old switch opening); button hole 3.6 x 2.0 with %%c6.4 x 0.6 "
         "finger dimple (-X); both on the X axis."), notes_at=(107, 60), notes_w=50)
     return sh
 
@@ -524,12 +525,12 @@ def sheet_midframe(doc, idx, n):
     sh.leader(R.p(11.75, 10.75, zb), R.p(RD + 2, RD + 6, zb), "3.5 x 3.5 WIRE HOLE")
     sh.label(R.p(0, -RD - 10, 0), "REAR")
 
-    # section B-B (y = 0): switch / button backer blocks
+    # section B-B (y = 0): button backer block
     B = sh.view(TOP, 38, 47)
     sh.section(part, B)
     sh.line(B.p(0, 0, zb - 3), B.p(0, 0, z_top + 1), "CENTER")
     sh.dim(B.p(-RD, 0, zf), B.p(RD, 0, zf), B.p(0, 0, zb - 3.5), text="%%c<>")
-    sh.dim(B.p(15.6, 0, zf), B.p(15.6, 0, pc.Z_MID + pc.SW_BODY[2] / 2), B.p(RD + 3, 0, 0), vertical=True)
+    sh.dim(B.p(-14.6, 0, zf), B.p(-14.6, 0, pc.Z_MID + pc.BTN_BODY[2] / 2), B.p(-RD - 3, 0, 0), vertical=True)
     sh.label(B.p(0, 0, z_top + 6), "SECTION B-B")
 
     I = sh.view(ISO, 183, 112, s=0.6)
@@ -624,9 +625,10 @@ BOM = [
     (4, "GC9A01 1.28in round TFT", 1, "Teyleten Robot module, 7-pin header removed"),
     (5, "XIAO nRF52840 Sense", 1, "Seeed Studio; taped to the midframe pad"),
     (6, "Vibration motor 10 x 3", 1, "Coin type, adhesive back"),
-    (7, "Slide switch EG1390", 1, "Taken from the LilyPad switch board"),
+    (7, "USB-C plug, tethered", 1, "TPU 95A, usb_plug.step"),
     (8, "Tact switch 3 x 6", 1, "4.3 high"),
     (9, "LiPo 402030", 1, "3.7 V ~200 mAh, 20 x 30 x 4"),
+    (10, "Round screen protector", 1, "%%c38-40, bonded on the front face"),
 ]
 
 
@@ -637,7 +639,7 @@ def sheet_assembly(doc, idx, n):
     battery = pc.zbox(-pc.BAT_W / 2, pc.BAT_W / 2, -pc.BAT_L / 2, pc.BAT_L / 2, pc.Z_DB - pc.BAT_T, pc.Z_DB)
     parts = [(housing, (0, 0.125)), (mid, (90, 0.125)), (cover, (0, 0.07)),
              (pc.make_display(), "solid"), (pc.make_xiao(), "solid"), (motor, "solid"),
-             (pc.make_switch(), "solid"), (pc.make_button(), "solid"), (battery, "solid")]
+             (up.make_usb_plug(), (45, 0.1)), (pc.make_button(), "solid"), (battery, "solid")]
     LT, LH = pc.LUG_TOP, pc.LUG_HALF
 
     F = sh.view(FRONT, 36, 105)
@@ -680,10 +682,12 @@ def sheet_assembly(doc, idx, n):
     sh.frame(PROJECT, "ASSEMBLY", "MC-M-001", idx + 1, n, notes=(
         "ASSEMBLY (all from the back)\\P"
         "1. Display (4), tab first into the lug pocket, PCB on the housing step.\\P"
-        "2. Switch (7) and button (8) into their wall holes.\\P"
+        "2. Button (8) into its wall hole.\\P"
         "3. Midframe (2) with XIAO (5) and motor (6), key tabs in the 45/135 deg channels.\\P"
         "4. Battery (9) between the ribs; back cover (3): tab end first, then the disc.\\P"
-        "Overall %%c42.2 x 54.4 x 19.19. Section fill: grey = purchased parts."),
+        "5. USB plug (7): barb through the +X slot, then into the USB-C pocket.\\P"
+        "6. Screen protector (10) on the clean, dry front face.\\P"
+        f"Overall %%c{2 * RO:.1f} x {RO + pc.LUG_TOP:.1f} x {H:.2f}. Section fill: grey = purchased parts."),
         notes_at=(172, 140), notes_w=33)
     return sh
 

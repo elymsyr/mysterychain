@@ -14,6 +14,7 @@ All scenes share the same behavior:
 - 80×80 pixel scene, scaled 3× to the 240×240 display over SPI DMA, ~30 fps. Motion is tied to real time, so speed holds if fps drops.
 - **BLE** (Nordic UART, name `MysteryChain`): text from the [mobile app](../mobile-app/) scrolls in a speech bubble at the top, the motor buzzes twice, the character cheers.
 - **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone.
+- **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
 
@@ -35,6 +36,7 @@ Tunables at the top of each `.ino`:
 | `SHAKE_G` | 0.5 | Shake threshold: deviation of \|a\| from 1 g |
 | `SHAKE_GAP_MS` | 400 | Minimum time between two shakes |
 | `MOTOR_MASK_MS` | 400 | Shake blackout after the motor stops. Use the value measured in bring-up T8. |
+| `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
 
 ## Scene interface
 

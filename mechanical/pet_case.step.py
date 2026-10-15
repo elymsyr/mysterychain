@@ -1,21 +1,27 @@
-"""MysteryChain - case assembly (v5: display header removed -> shallow tab lug, key slot).
+"""MysteryChain - case assembly (v7: battery beside the XIAO, reaching into the lug; flat back cover).
 
 Coordinates: origin = display center, back face z=0, front (display) face z=H, +Z toward the viewer.
 Looking at the display: +X right, +Y up (display tab + keyring lug at the top).
 Depths "d" are measured inward from the front face (mm); z = H - d.
 
 Layers (front to back):
-  bezel | display (LCD) | display PCB | rear component clearance + display wires |
-  XIAO + motor + switch + button + passives | midframe (deck) | battery | back cover
+  bezel | display (LCD) | display PCB | rear component clearance + display wires (+ motor in the lug) |
+  XIAO + button + passives  |  battery (beside the XIAO, under the tab, into the lug) | midframe (deck) | back cover
 
-Assembly order (all from the back): display (tab into the pocket on the lug side) -> midframe (+XIAO, motor) ->
-switch / button -> battery -> back cover (tab tip + 4 perimeter hooks).
+Assembly order (all from the back): display (tab into the lug pocket) -> motor (adhesive, ring on the lug skin) ->
+button -> midframe (+XIAO, battery) -> back cover (4 perimeter + 2 lug side hooks).
+USB plug (TPU, usb_plug.step.py) last, from outside.
 
 Load paths:
-  - Display: back cover posts -> midframe -> midframe legs -> display PCB -> housing step (LCD floats).
+  - Display: back cover -> midframe deck -> midframe legs -> display PCB -> housing step (LCD floats).
   - USB insertion: plug pushes the XIAO to +Y -> midframe stop rib.
   - Button press: button body -> midframe backer block.
-  - Keyring: slot + bridge at the tab end, one piece with the body (not through the cover / PCB).
+  - Keyring: slot + bridge at the lug end, one piece with the body (not through the cover / PCB).
+
+Splash (IPX4 goal): round screen protector bonded on the flat front face over the window,
+TPU plug in the USB pocket, its barb seals the old switch slot; power on/off in firmware.
+Battery switch (EG1390) lies on the midframe, its actuator reached from the back through a slot in the
+midframe + cover (tip 0.2 below the cover face); a piece of tape over the slot seals it.
 """
 
 import math
@@ -26,6 +32,7 @@ from build123d import (
 )
 from cadgen import srgb
 from cadgen.assembly import AssemblyHelper
+from cadgen.sources import load_source_module
 from cadgen.step_scene import import_step
 
 HERE = Path(__file__).resolve().parent
@@ -41,9 +48,9 @@ DISP_PCB_T = 1.6          # 1.5875 + mounting-hole pad rings (pads sit on the st
 LCD_D = 35.6             # LCD panel (with neck), offset LCD_DY from the PCB center
 LCD_DY = -0.335
 LCD_STACK = 1.626        # PCB front -> polarizer front (model: no tape)
-GLASS_GAP = 0.3          # polarizer - bezel gap (also absorbs the real tape thickness)
+GLASS_GAP = 0.15         # polarizer - lip gap: layer rounding of the lip/step faces (~±0.08) + tape spread
 DISP_REAR = 3.25         # display PCB back -> XIAO = 3.0 net (XIAO STEP bottom protrusion 0.25); rear SOT-23 LDO <=1.45
-WIN_D = 33.0             # viewing window (polarizer Ø32.4 + 0.3 per side)
+WIN_D = 34.6             # window: active area Ø32.05 + black ring, lip covers the glass edge (Ø35.2) by 0.3
 TAB_REAR = 2.5           # behind the tab pads: header removed, solder/pin stubs <=1 + 30AWG wires bent flat
 SOLDER_HALF_X, SOLDER_Y, SOLDER_H = 8.52, (24.36, 26.14), 1.164   # front-side solder joints
 
@@ -55,13 +62,16 @@ XIAO_TOP_Y = 4.21                         # STEP-local highest point (USB-C)
 XIAO_SHIELD_Y = 3.0
 XIAO_USB_CY = 2.11                        # USB-C height center
 USB_FACE_Y = -18.2                        # USB-C front face in the assembly (world Y)
+XIAO_RST_X, XIAO_RST_DY = -5.7, 3.4       # reset button (Seeed STEP): world X, distance from the USB-C face
 
 MOTOR_D, MOTOR_T = 10.0, 3.0
-MOTOR_Y = 11.8
 
-# EG1390 (the switch on the LilyPad board, desoldered)
-SW_BODY = (1.5, 7.2, 3.5)   # radial, tangential, depth
-SW_ACT_L, SW_ACT_W, SW_ACT_T, SW_TRAVEL = 2.0, 1.5, 1.0, 1.5
+# old EG1390 slide switch opening (+X): switch removed, on/off in firmware; slot + recess anchor the USB plug
+SW_ACT_W, SW_TRAVEL = 1.5, 1.5
+# battery switch: EG1390 (desoldered from the LilyPad board), lying flat on the midframe, actuator -Z
+SW_BODY = (3.5, 7.0, 1.5)             # x, y (slide direction), z; 7.0 measured
+SW_ACT_L, SW_ACT_T = 2.0, 1.0         # actuator: protrusion, thickness (its width along Y = SW_ACT_W)
+SW_X, SW_Y = -11.25, -7.0             # body center: beside the XIAO's D0-D6 edge, clear of leg 205 / hook 230
 # 3x6 tact button
 BTN_BODY = (2.5, 6.0, 3.5)
 BTN_PLUNGER = (1.8, 3.0, 1.5)
@@ -70,11 +80,12 @@ BTN_PLUNGER = (1.8, 3.0, 1.5)
 BAT_W, BAT_L, BAT_T = 20.0, 30.0, 4.0
 BAT_SWELL = 0.5            # swelling allowance (~10% of thickness)
 BAT_GAP = 0.5              # side clearance
+BAT_WIRE = 1.5             # lead bend at the XIAO end
 
 # case
 FIT = 0.25                 # display PCB - case radial clearance
 WALL = 1.8
-BEZEL_T = 1.2
+BEZEL_T = 0.4              # front lip (3 layers, printed on the bed)
 DECK_T = 1.0
 COVER_T = 1.2
 KEY_WEB, KEY_SLOT_W, KEY_SLOT_L, KEY_BAR = 1.2, 3.0, 10.0, 2.4   # tab pocket | slot | bridge
@@ -86,9 +97,11 @@ D_PCB_FRONT = BEZEL_T + GLASS_GAP + LCD_STACK          # display PCB sits on the
 D_PCB_BACK = D_PCB_FRONT + DISP_PCB_T
 D_XIAO_BOT = D_PCB_BACK + DISP_REAR
 D_DECK_FRONT = D_XIAO_BOT + XIAO_TOP_Y + 0.3
-D_DECK_BACK = D_DECK_FRONT + DECK_T
-D_COVER_FRONT = D_DECK_BACK + BAT_T + BAT_SWELL
+D_DECK_BACK = D_DECK_FRONT + DECK_T     # deck depth is set by the USB-C plug overmold (6.5), not the battery
+D_COVER_FRONT = D_DECK_BACK
 H = D_COVER_FRONT + COVER_T
+# battery lies on the deck; its swell must stay clear of the tab pads + wires
+assert D_DECK_FRONT - BAT_T - BAT_SWELL >= D_PCB_BACK + TAB_REAR
 
 
 def z(d):
@@ -96,19 +109,21 @@ def z(d):
 
 
 Z_DF, Z_DB = z(D_DECK_FRONT), z(D_DECK_BACK)
-Z_MID = z((D_XIAO_BOT + D_DECK_FRONT) / 2)      # switch / button height center
+Z_MID = z((D_XIAO_BOT + D_DECK_FRONT) / 2)      # button / plug anchor height center
 TAB_HALF = TAB_W / 2 + FIT
 TAB_TOP = MODULE_L - DISP_PCB_D / 2 + FIT
-KEY_SLOT_CY = TAB_TOP + KEY_WEB + KEY_SLOT_W / 2
-LUG_HALF, LUG_TOP = TAB_HALF + WALL, TAB_TOP + KEY_WEB + KEY_SLOT_W + KEY_BAR
-# tab region only wraps the tab + its wires: its back face is shallower than the body (stepped)
-D_LUG_IN = D_PCB_BACK + TAB_REAR
-Z_LUG_BACK = z(D_LUG_IN + COVER_T)
 
 # XIAO placement: component side back (-Z), USB-C down (-Y)
 XIAO_ORIGIN = (-XIAO_PCB_CZ, USB_FACE_Y + XIAO_USB_FACE_X, z(D_XIAO_BOT))
 XIAO_PCB_TOP_Y = XIAO_ORIGIN[1] + 8.67     # antenna end (STEP-local x min = -8.67)
 Z_USB = XIAO_ORIGIN[2] - XIAO_USB_CY
+
+# battery: past the XIAO stop rib, long side up into the lug; the lug is full depth and ends behind it
+BAT_Y0 = XIAO_PCB_TOP_Y + 1.3 + BAT_GAP + BAT_WIRE
+LUG_IN_TOP = BAT_Y0 + BAT_L + BAT_GAP
+KEY_SLOT_CY = LUG_IN_TOP + KEY_WEB + KEY_SLOT_W / 2
+LUG_HALF, LUG_TOP = TAB_HALF + WALL, LUG_IN_TOP + KEY_WEB + KEY_SLOT_W + KEY_BAR
+MOTOR_Y = (TAB_TOP + LUG_IN_TOP) / 2       # on the lug front skin, past the tab tip, in front of the battery
 
 # USB-C plug overmold (USB-IF max 12.35 x 6.5) + clearance; pocket floor = receptacle face -> plug seats fully
 USB_POCKET_W, USB_POCKET_H = 13.0, 7.0
@@ -118,10 +133,9 @@ CATCH_Z0 = COVER_T + 3.7         # catch tip (45° retention ramp, removable)
 CATCH_Z1 = CATCH_Z0 + 1.2        # arm tip (lead-in ramp)
 GROOVE = (CATCH_Z0 - 0.9, CATCH_Z1 + 0.1)
 HOOK_W = 4.0
-HOOK_ANGLES = (0, 180, 225, 315)   # 270 hits the USB plug, 240/300 hit battery corners
-TAB_HOOK_X, TAB_HOOK_W = 10.0, 2.0   # tab-tip hooks sit outside the pad row (±7.95)
-TAB_HOOK_R = TAB_TOP + 1.35          # catch wall beyond the tab tip: arms clear the PCB by 0.3 (0.15 deflected)
-TAB_DZ = Z_LUG_BACK                  # tab hooks rise from the stepped cover plate
+HOOK_ANGLES = (20, 160, 230, 310)   # 0/180 = plug slot/button height, 270 = USB plug, 315 = passives, 53..127 = lug
+LUG_HOOK_Y = LUG_IN_TOP - 4.0       # 2 more on the lug side walls, beside the battery
+HOOKS = [(RI, a, 0.0) for a in HOOK_ANGLES] + [(TAB_HALF, a, LUG_HOOK_Y) for a in (0, 180)]  # (wall, angle, y)
 GROOVE_R = RI + 0.7               # >=0.2 clearance including outer corners
 
 
@@ -147,15 +161,13 @@ def zcyl(x, y, r, z0, z1):
 
 # ---------------------------------------------------------------- front housing
 def make_front_housing():
-    body = Cylinder(RO, H, align=MIN)
-    lug = Pos(0, LUG_TOP / 2, Z_LUG_BACK) * extrude(
-        RectangleRounded(2 * LUG_HALF, LUG_TOP, 3.0), H - Z_LUG_BACK)
-    body = body.fuse(lug).clean()
+    body = Cylinder(RO, H, align=MIN).fuse(
+        Pos(0, LUG_TOP / 2, 0) * extrude(RectangleRounded(2 * LUG_HALF, LUG_TOP, 3.0), H)).clean()
 
     sw_y = SW_ACT_W + SW_TRAVEL + 0.4
     cuts = [
         zcyl(0, LCD_DY, WIN_D / 2, z(BEZEL_T) - 0.1, H + 1),                  # window
-        Pos(0, LCD_DY, H - 0.6) * Cone(WIN_D / 2, WIN_D / 2 + 0.7, 0.7, align=MIN),  # window chamfer
+        Pos(0, LCD_DY, H - 0.2) * Cone(WIN_D / 2, WIN_D / 2 + 0.3, 0.3, align=MIN),  # window chamfer
         zcyl(0, LCD_DY, LCD_D / 2 + 0.2, z(D_PCB_FRONT), z(BEZEL_T)),         # LCD recess
         # LCD neck + FPC bend (on the tab, PCB front side)
         extrude(Polygon((-8.85, 14.5), (8.85, 14.5), (8.85, 15.3), (6.95, 19.97), (6.95, 21.2),
@@ -165,18 +177,16 @@ def make_front_housing():
         zbox(-SOLDER_HALF_X - 0.4, SOLDER_HALF_X + 0.4, SOLDER_Y[0] - 0.4, SOLDER_Y[1] + 0.4,
              z(D_PCB_FRONT) - 0.1, z(D_PCB_FRONT) + SOLDER_H + 0.3),
         zcyl(0, 0, RI, -1, z(D_PCB_FRONT)),                                  # main cavity
-        # tab + header + wire pocket, open to the back (display inserts from the back)
-        zbox(-TAB_HALF, TAB_HALF, 0, TAB_TOP, -1, z(D_PCB_FRONT)),
+        # lug cavity: display tab + battery + motor, open to the back (display inserts from the back)
+        zbox(-TAB_HALF, TAB_HALF, 0, LUG_IN_TOP, -1, z(D_PCB_FRONT)),
         zcyl(0, 0, GROOVE_R, GROOVE[0], GROOVE[1]),                          # hook groove
-        # tab-tip hook recesses (arms rise beside the PCB tip, past the shallow tab cavity) + catch grooves
-        *[zbox(x - 1.5, x + 1.5, TAB_TOP - 0.1, TAB_HOOK_R, -1, TAB_DZ + CATCH_Z1 + 0.3)
-          for x in (-TAB_HOOK_X, TAB_HOOK_X)],
-        *[zbox(x - 1.5, x + 1.5, TAB_TOP, TAB_HOOK_R + 0.7, TAB_DZ + GROOVE[0], TAB_DZ + GROOVE[1])
-          for x in (-TAB_HOOK_X, TAB_HOOK_X)],
+        # lug side hook grooves
+        *[zbox(s * (TAB_HALF - 0.1), s * (TAB_HALF + 0.7), LUG_HOOK_Y - HOOK_W / 2 - 0.3,
+               LUG_HOOK_Y + HOOK_W / 2 + 0.3, GROOVE[0], GROOVE[1]) for s in (-1, 1)],
         # USB-C plug overmold pocket, down to the receptacle face
         zbox(-USB_POCKET_W / 2, USB_POCKET_W / 2, -RO - 1, USB_FACE_Y,
              Z_USB - USB_POCKET_H / 2, Z_USB + USB_POCKET_H / 2),
-        # switch actuator slot + thumb recess
+        # USB plug anchor: old switch slot + thumb recess
         zbox(RI - 1, RO + 1, -sw_y / 2, sw_y / 2, Z_MID - 0.7, Z_MID + 0.7),
         zbox(RO - 0.9, RO + 1, -3.25, 3.25, Z_MID - 1.8, Z_MID + 1.8),
         # button hole + finger dimple
@@ -186,81 +196,73 @@ def make_front_housing():
         Pos(0, KEY_SLOT_CY, -1) * extrude(
             RectangleRounded(KEY_SLOT_L, KEY_SLOT_W, KEY_SLOT_W / 2 - 0.05), H + 2),
         # cover pry notch
-        sector_box(RI - 0.5, RI + 1.0, 5.0, -1, 0.8, 225),
+        sector_box(RI - 0.5, RI + 1.0, 5.0, -1, 0.8, 230),
     ]
-    # midframe key channels (lock rotation, one-way fit)
-    cuts += [sector_box(RI - 0.5, RI + 0.7, 4.0, -1, Z_DF + 0.3, a) for a in (45, 135)]
-    return body.cut(*cuts).clean()
+    # motor locating ring on the lug front skin, wire gap toward the XIAO (also clears the tab tip)
+    zf = z(D_PCB_FRONT)
+    ring = zcyl(0, MOTOR_Y, MOTOR_D / 2 + 1.05, zf - 1.0, zf + 0.1).cut(
+        zcyl(0, MOTOR_Y, MOTOR_D / 2 + 0.25, zf - 2, zf + 1),
+        zbox(-2.5, 2.5, MOTOR_Y - 7, MOTOR_Y, zf - 2, zf + 1))
+    return body.cut(*cuts).fuse(ring).clean()
 
 
 # ---------------------------------------------------------------- midframe
 def make_midframe():
-    deck = zcyl(0, 0, RI - 0.2, Z_DB, Z_DF)
-    adds = [sector_box(RI - 0.4, RI + 0.5, 3.4, Z_DB, Z_DF, a) for a in (45, 135)]
-    # display clamp legs (press on the PCB edge ring)
-    adds += [zcyl(*polar(17.6, a), 1.2, Z_DF - 0.1, z(D_PCB_BACK)) for a in (60, 120, 205, 335)]
+    th = TAB_HALF - 0.2
+    deck = zcyl(0, 0, RI - 0.2, Z_DB, Z_DF).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, Z_DB, Z_DF))   # lug keys rotation
+    # display clamp legs (press on the PCB edge ring, clear of the battery)
+    adds = [zcyl(*polar(17.6, a), 1.2, Z_DF - 0.1, z(D_PCB_BACK)) for a in (40, 140, 205, 335)]
     # XIAO: tape pad on the shield + stop rib at the antenna end
     shield_top = XIAO_ORIGIN[2] - XIAO_SHIELD_Y
     adds += [
         zbox(-4, 4, XIAO_ORIGIN[1] - 4.05, XIAO_ORIGIN[1] + 3.95, Z_DF - 0.1, shield_top - 0.5),
         zbox(-6, 6, XIAO_PCB_TOP_Y + 0.15, XIAO_PCB_TOP_Y + 1.3, Z_DF - 0.1, z(D_XIAO_BOT + 0.2)),
     ]
-    # motor cup (ring with wire notch)
-    ring = zcyl(0, MOTOR_Y, MOTOR_D / 2 + 1.0, Z_DF - 0.1, Z_DF + MOTOR_T + 0.2)
-    ring = ring.cut(
-        zcyl(0, MOTOR_Y, MOTOR_D / 2 + 0.25, Z_DF, Z_DF + 5),
-        zbox(-1.0, 1.0, MOTOR_Y - 7, MOTOR_Y - 4, Z_DF, Z_DF + 5),
-    )
-    adds.append(ring)
-    # switch and button backer blocks (take the press load)
-    sw_in = RI - (RI - math.sqrt(RI**2 - (SW_BODY[1] / 2) ** 2)) - 0.05 - SW_BODY[0]
+    # button backer block (takes the press load)
     btn_in = RI - (RI - math.sqrt(RI**2 - (BTN_BODY[1] / 2) ** 2)) - 0.05 - BTN_BODY[0]
-    adds += [
-        zbox(15.6, sw_in - 0.1, -3.8, 3.8, Z_DF - 0.1, Z_MID + SW_BODY[2] / 2),
-        zbox(-(btn_in - 0.1), -14.6, -3.4, 3.4, Z_DF - 0.1, Z_MID + BTN_BODY[2] / 2),
-    ]
-    # battery bay ribs (back face)
-    bx, by = BAT_W / 2 + BAT_GAP, BAT_L / 2 + BAT_GAP
-    rib_h = 2.0
-    for s in (-1, 1):
-        adds.append(zbox(s * bx, s * (bx + 0.8), -8, 8, Z_DB - rib_h, Z_DB + 0.1))
-        adds.append(zbox(-7, 7, s * by, s * (by + 0.8), Z_DB - rib_h, Z_DB + 0.1))
+    adds.append(zbox(-(btn_in - 0.1), -14.6, -3.4, 3.4, Z_DF - 0.1, Z_MID + BTN_BODY[2] / 2))
+    # battery switch end stops (take the slide force; the body is taped down)
+    sx, sy = SW_BODY[0] / 2, SW_BODY[1] / 2 + 0.1
+    adds += [zbox(SW_X - sx, SW_X + sx, SW_Y + s * sy, SW_Y + s * (sy + 0.8), Z_DF - 0.1, Z_DF + 1.0)
+             for s in (-1, 1)]
+    # battery side ribs (front face; end stops = stop rib + lug end wall), clear of the lug hooks
+    bx = BAT_W / 2 + BAT_GAP
+    adds += [zbox(s * bx, s * (bx + 0.8), BAT_Y0 + 1.5, LUG_HOOK_Y - HOOK_W / 2 - 1.5, Z_DF - 0.1, Z_DF + 2.0)
+             for s in (-1, 1)]
     deck = deck.fuse(*adds).clean()
-    cuts = [
-        zbox(10, 13.5, 9, 12.5, Z_DB - 5, Z_DF + 5),            # battery wire pass-through
-        zbox(-USB_POCKET_W / 2 - 0.2, USB_POCKET_W / 2 + 0.2, -RI - 1, USB_FACE_Y + 0.2,
-             Z_DB - 1, Z_DF + 1),                                 # USB plug clearance
-    ]
+    cuts = [zbox(-USB_POCKET_W / 2 - 0.2, USB_POCKET_W / 2 + 0.2, -RI - 1, USB_FACE_Y + 0.2,
+                 Z_DB - 1, Z_DF + 1)]                             # USB plug clearance
+    # reset access: no power switch, so a pin through here (cover off) is the way out of a hung firmware
+    cuts.append(zcyl(XIAO_RST_X, USB_FACE_Y + XIAO_RST_DY, 1.0, Z_DB - 1, Z_DF + 1))
+    cuts.append(battery_switch_slot(Z_DB - 1, Z_DF + 1))
     # hook arms pass the midframe edge (keeps arm length)
-    cuts += [sector_box(RI - 1.4, RI + 0.5, HOOK_W + 0.8, Z_DB - 1, Z_DF + 1, a) for a in HOOK_ANGLES]
+    cuts += [Pos(0, dy, 0) * sector_box(r - 1.4, r + 0.5, HOOK_W + 0.8, Z_DB - 1, Z_DF + 1, a) for r, a, dy in HOOKS]
     return deck.cut(*cuts).clean()
 
 
 # ---------------------------------------------------------------- back cover
 def make_back_cover():
     th = TAB_HALF - 0.2
-    # stepped cover: disc + fill for the body wall notch + tab back plate (battery bay left open)
-    notch = zbox(-th, th, 0, RO + 1, 0, Z_LUG_BACK).intersect(Cylinder(RO, H, align=MIN))
-    plate = zbox(-th, th, 0, TAB_TOP - 0.2, Z_LUG_BACK, Z_LUG_BACK + COVER_T).fuse(*[
-        zbox(x - 1.3, x + 1.3, TAB_TOP - 0.3, TAB_HOOK_R - 0.2, Z_LUG_BACK, Z_LUG_BACK + COVER_T)
-        for x in (-TAB_HOOK_X, TAB_HOOK_X)])   # tongues under the tab-tip hook arms
-    cover = Cylinder(RI - 0.2, COVER_T, align=MIN).fuse(
-        notch.fuse(plate).cut(zcyl(0, 0, RI, COVER_T, H)))   # flush with the wall: midframe keeps 0.2
+    # flat cover, same outline as the deck (which lies directly on it)
+    cover = Cylinder(RI - 0.2, COVER_T, align=MIN).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, 0, COVER_T))
     adds = []
-    # (wall, angle, x offset, width, base z): 4 perimeter hooks + 2 tab-tip hooks
-    hooks = [(RI, a, 0, HOOK_W, 0) for a in HOOK_ANGLES]
-    hooks += [(TAB_HOOK_R, 90, x, TAB_HOOK_W, TAB_DZ) for x in (-TAB_HOOK_X, TAB_HOOK_X)]
-    for r_wall, a, dx, w, dz in hooks:
+    for r_wall, a, dy in HOOKS:
         r_out = r_wall - 0.35
-        c0, c1 = dz + CATCH_Z0, dz + CATCH_Z1
-        adds.append(Pos(dx, 0, 0) * sector_box(r_out - 0.7, r_out, w, dz + COVER_T - 0.1, c1, a))
+        adds.append(Pos(0, dy, 0) * sector_box(r_out - 0.7, r_out, HOOK_W, COVER_T - 0.1, CATCH_Z1, a))
         profile = Plane.XZ * Polygon(
-            (r_out - 0.1, c0 - 0.8), (r_wall + 0.4, c0),
-            (r_wall + 0.4, c0 + 0.2), (r_out - 0.1, c1), align=None)
-        adds.append(Pos(dx, 0, 0) * Rot(0, 0, a) * extrude(profile, amount=w / 2, both=True))
-    # posts pressing on the midframe (clear of battery corners)
-    adds += [zcyl(*polar(17.9, a), 1.0, COVER_T - 0.1, Z_DB) for a in (30, 150, 210, 330)]
-    return cover.fuse(*adds).clean()
+            (r_out - 0.1, CATCH_Z0 - 0.8), (r_wall + 0.4, CATCH_Z0),
+            (r_wall + 0.4, CATCH_Z0 + 0.2), (r_out - 0.1, CATCH_Z1), align=None)
+        adds.append(Pos(0, dy, 0) * Rot(0, 0, a) * extrude(profile, amount=HOOK_W / 2, both=True))
+    # the USB pocket floor (z 1.1) is below the cover top: relief for the TPU plug body
+    relief = zbox(-USB_POCKET_W / 2 - 0.2, USB_POCKET_W / 2 + 0.2, -RI - 1, USB_FACE_Y + 0.2,
+                  Z_USB - USB_POCKET_H / 2 - 0.3, COVER_T + 1)
+    return cover.fuse(*adds).cut(relief, battery_switch_slot(-1, COVER_T + 1)).clean()
+
+
+def battery_switch_slot(z0, z1):
+    """Actuator slot through midframe + cover: actuator width + travel + 0.4 along Y, thickness + 0.4 along X."""
+    hy, hx = (SW_ACT_W + SW_TRAVEL + 0.4) / 2, (SW_ACT_T + 0.4) / 2
+    return zbox(SW_X - hx, SW_X + hx, SW_Y - hy, SW_Y + hy, z0, z1)
 
 
 # ---------------------------------------------------------------- components
@@ -276,15 +278,6 @@ def make_xiao():
     return Compound(import_step(str(XIAO_STEP)).solids()).moved(Location(plane))
 
 
-def make_switch():
-    sx, sy, sz = SW_BODY
-    x_out = math.sqrt(RI**2 - (sy / 2) ** 2) - 0.05
-    body = zbox(x_out - sx, x_out, -sy / 2, sy / 2, Z_MID - sz / 2, Z_MID + sz / 2)
-    act = zbox(x_out - 0.1, x_out + SW_ACT_L, SW_TRAVEL / 2 - SW_ACT_W / 2, SW_TRAVEL / 2 + SW_ACT_W / 2,
-               Z_MID - SW_ACT_T / 2, Z_MID + SW_ACT_T / 2)
-    return body.fuse(act)
-
-
 def make_button():
     bx, by, bz = BTN_BODY
     px, py, pz = BTN_PLUNGER
@@ -294,29 +287,44 @@ def make_button():
     return body.fuse(plunger)
 
 
+def make_battery_switch():
+    bx, by, bz = SW_BODY
+    body = zbox(SW_X - bx / 2, SW_X + bx / 2, SW_Y - by / 2, SW_Y + by / 2, Z_DF, Z_DF + bz)
+    ay = SW_Y + SW_TRAVEL / 2     # actuator at one end of its travel
+    act = zbox(SW_X - SW_ACT_T / 2, SW_X + SW_ACT_T / 2, ay - SW_ACT_W / 2, ay + SW_ACT_W / 2,
+               Z_DF - SW_ACT_L, Z_DF + 0.1)
+    return body.fuse(act)
+
+
 def gen_step():
     asm = AssemblyHelper("mysterychain")
     asm.add(make_front_housing(), "front_housing", color=srgb("#EDEAE2", 0.55))
     asm.add(make_midframe(), "midframe", color=srgb("#4F7CAC"))
     asm.add(make_back_cover(), "back_cover", color=srgb("#7A8B99"))
+    # loaded here: usb_plug.step.py imports this file
+    plug = load_source_module(HERE / "usb_plug.step.py").make_usb_plug()
+    asm.add(plug, "usb_plug_tpu", color=srgb("#E07A3A"))
 
-    motor = zcyl(0, MOTOR_Y, MOTOR_D / 2, Z_DF, Z_DF + MOTOR_T)
-    battery = zbox(-BAT_W / 2, BAT_W / 2, -BAT_L / 2, BAT_L / 2, Z_DB - BAT_T, Z_DB)
+    motor = zcyl(0, MOTOR_Y, MOTOR_D / 2, z(D_PCB_FRONT) - MOTOR_T, z(D_PCB_FRONT))
+    battery = zbox(-BAT_W / 2, BAT_W / 2, BAT_Y0, BAT_Y0 + BAT_L, Z_DF, Z_DF + BAT_T)
     asm.add_module("electronics", [
         asm.feature(make_display(), "gc9a01_display_module", color=srgb("#1F5FA8")),
         asm.feature(make_xiao(), "xiao_nrf52840_sense"),
         asm.feature(motor, "vibration_motor", color=srgb("#B5B5B5")),
-        asm.feature(make_switch(), "power_switch", color=srgb("#222222")),
         asm.feature(make_button(), "tact_button", color=srgb("#333333")),
         asm.feature(battery, "lipo_402030", color=srgb("#C9A227")),
+        asm.feature(make_battery_switch(), "battery_switch_eg1390", color=srgb("#222222")),
     ])
     asm.add_module("keepout", [
         asm.feature(
-            zbox(-BAT_W / 2 - BAT_GAP, BAT_W / 2 + BAT_GAP, -BAT_L / 2 - BAT_GAP, BAT_L / 2 + BAT_GAP,
-                 Z_DB - BAT_T - BAT_SWELL, Z_DB),
+            zbox(-BAT_W / 2 - BAT_GAP, BAT_W / 2 + BAT_GAP, BAT_Y0 - BAT_GAP, BAT_Y0 + BAT_L + BAT_GAP,
+                 Z_DF, Z_DF + BAT_T + BAT_SWELL),
             "battery_safe_zone", color=srgb("#E53935", 0.25)),
         asm.feature(zbox(9.5, 14.0, -12.0, -4.5, Z_DF, z(D_XIAO_BOT + 0.2)),
                     "passives_zone", color=srgb("#FF9800", 0.3)),
+        # Q2 (SOT-23) + 100k on their own, beside the XIAO's D7/D8 pads
+        asm.feature(zbox(9.5, 13.0, -3.0, 3.0, Z_DF, z(D_XIAO_BOT + 0.2)),
+                    "q2_zone", color=srgb("#FF9800", 0.3)),
         # fully inserted USB-C plug overmold (USB-IF max), front face at the receptacle face
         asm.feature(zbox(-6.175, 6.175, USB_FACE_Y - 0.02, USB_FACE_Y - 12, Z_USB - 3.25, Z_USB + 3.25),
                     "usb_c_plug_overmold", color=srgb("#9C27B0", 0.3)),
@@ -325,5 +333,5 @@ def gen_step():
 
 
 if __name__ == "__main__":
-    print(f"H={H:.2f}  OD={2 * RO:.2f}  height={RO + LUG_TOP:.2f}  lug_depth={H - Z_LUG_BACK:.2f}  "
-          f"tab_cavity_depth={D_LUG_IN:.2f}  cover_front_depth={D_COVER_FRONT:.2f}")
+    print(f"H={H:.2f}  OD={2 * RO:.2f}  height={RO + LUG_TOP:.2f}  lug_width={2 * LUG_HALF:.2f}  "
+          f"battery_y={BAT_Y0:.2f}..{BAT_Y0 + BAT_L:.2f}  motor_y={MOTOR_Y:.2f}  cover_front_depth={D_COVER_FRONT:.2f}")

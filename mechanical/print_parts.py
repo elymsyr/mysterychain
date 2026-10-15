@@ -7,11 +7,15 @@ HERE = Path(__file__).parent
 spec = importlib.util.spec_from_file_location("pc", HERE / "pet_case.step.py")
 pc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pc)
+spec = importlib.util.spec_from_file_location("up", HERE / "usb_plug.step.py")
+up = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(up)
 
 parts = {
     "front_housing": Rot(180, 0, 0) * pc.make_front_housing(),   # front face down (window chamfer prints clean)
-    "midframe": pc.make_midframe(),                              # battery ribs down
-    "back_cover": pc.make_back_cover(),                          # disc down, hooks up
+    "midframe": pc.make_midframe(),                              # deck down, legs/ribs up
+    "back_cover": pc.make_back_cover(),                          # plate down, hooks up
+    "usb_plug": up.make_usb_plug(),                              # as modelled, flange + strap edge down
 }
 out = HERE / "print"
 for name, part in parts.items():

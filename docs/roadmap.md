@@ -42,10 +42,12 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | ID | Feature | What it does | Needs |
 | --- | --- | --- | --- |
 | S1 | Settings from the app | Vibration on/off, shake sensitivity (`SHAKE_G` today), quiet hours, pet name. Persisted in flash. | O1, O2, A4 |
-| S2 | Battery level | Shown on the device and in the app; the pet looks tired when low. | LiPo, K1 |
+| S2 | Battery level | Shown on the device and in the app; the pet looks tired when low. Below ~3.4 V without USB it turns itself off (code in bring-up T10, not in the scenes yet). | LiPo, K1 |
 | S3 | Power saving | Display sleeps or fps drops when idle; wakes on button, shake or BLE event. | LiPo |
 
-**S3 is on hold** until the LiPo arrives. Until then the hardware is the variant without the display switch Q2 (AO3401A), so the backlight can't be turned off. Q2 gets added with the LiPo, and S3 is updated then.
+**Power on/off** is coded in every scene: the button does it (hold 3 s = off, ~1 s = on, USB plug-in = on). The battery switch on the back (under tape) is only for storage, water and hangs. It needs the display switch Q2 (AO3401A), now a required part; until Q2 is fitted, "off" leaves the backlight on. Not tested on hardware yet (bring-up T10).
+
+**S3 is on hold** until the LiPo arrives. Off is not S3: off is a reset on wake, S3 keeps the pet running with the display dark.
 
 ## Shared groundwork
 
@@ -77,7 +79,7 @@ OTA is in phase 1 because USB updates get awkward once the case is closed.
 
 | # | Topic | Options / notes | Decide by |
 | --- | --- | --- | --- |
-| 1 | Sharing the button (O4) | Single / double / long press gestures, or modes? | Start of phase 2 (K2) |
+| 1 | Sharing the button (O4) | Single / double / long press gestures, or modes? A 3 s hold is taken: power off. | Start of phase 2 (K2) |
 | 2 | HID pairing (A7) | Shutter and media keys need bonding, which changes today's "connect from the app, no pairing" flow. Always on, or a setting? | Phase 4 |
 | 3 | Mini game (K7) | One-button obstacle jump, tilt to catch the yarn, or something else | Phase 4 |
 | 4 | Stats hit zero (K1) | Proposal: the pet never dies, it just looks sad or sleepy | Phase 2 |

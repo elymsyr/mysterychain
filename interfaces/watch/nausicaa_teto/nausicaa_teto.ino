@@ -3,6 +3,7 @@
 // her hand, and Teto climbs back to her shoulder. Everything else is the same as ../cat.
 // BLE (Nordic UART, name "MysteryChain"): text from the phone shows in a speech bubble, the motor buzzes twice,
 // Nausicaa cheers. Button and shake events go to the phone as "button N" / "shake N".
+// Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
 // Motion is tied to real time: speed stays the same if fps drops. Serial monitor prints fps once a second.
 #include <Adafruit_TinyUSB.h>  // for Serial
 #include <Adafruit_GC9A01A.h>
@@ -10,7 +11,8 @@
 #include <bluefruit.h>
 #include "nausicaa.h"
 
-const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0;
+const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0, DISP_PWR = D7;
+const uint32_t ON_HOLD_MS = 1000, OFF_HOLD_MS = 3000;  // power button, see powerOff()
 const uint32_t SPI_HZ = 32000000;          // if the image glitches: 16000000 (~17 fps)
 const int SC = 240 / nausicaa::N, BAND = 8;  // 3x scale; strip of 8 logical rows = 11.5 KB
 
@@ -90,13 +92,57 @@ void drawBubble(uint32_t now) {
   gfx.clipL = 0, gfx.clipR = nausicaa::N;
 }
 
+// Power: daily on/off is the button (the battery switch on the back stays on). Hold the button OFF_HOLD_MS to turn off, about ON_HOLD_MS to turn on
+// (electronics/tests/t10_power). Off = display cut by Q2 + System OFF, a few uA; waking is a reset.
+bool dispOn;
+
+void flashSleep() {  // on-board QSPI flash into deep power-down (0xB9): ~25 uA less while off
+  const uint8_t pins[] = {PIN_QSPI_CS, PIN_QSPI_SCK, PIN_QSPI_IO0, PIN_QSPI_IO2, PIN_QSPI_IO3};
+  for (uint8_t p : pins) pinMode(p, OUTPUT);  // the core preloads outputs HIGH: CS, WP#, HOLD# idle
+  digitalWrite(PIN_QSPI_SCK, LOW);
+  digitalWrite(PIN_QSPI_CS, LOW);
+  for (int i = 7; i >= 0; i--) {
+    digitalWrite(PIN_QSPI_IO0, (0xB9 >> i) & 1);
+    digitalWrite(PIN_QSPI_SCK, HIGH);
+    digitalWrite(PIN_QSPI_SCK, LOW);
+  }
+  digitalWrite(PIN_QSPI_CS, HIGH);
+}
+
+void powerOff() {
+  digitalWrite(MOTOR, LOW);
+  if (dispOn) {  // display pins LOW first so they don't feed the display, then cut its power
+    tft.fillScreen(0);  // goes dark even without Q2
+    SPI.end();
+    const uint8_t pins[] = {TFT_CS, TFT_DC, TFT_RST, PIN_SPI_SCK, PIN_SPI_MOSI};
+    for (uint8_t p : pins) pinMode(p, OUTPUT), digitalWrite(p, LOW);
+  }
+  pinMode(DISP_PWR, OUTPUT);
+  digitalWrite(DISP_PWR, HIGH);  // Q2 off
+  const uint8_t loads[] = {PIN_LSM6DS3TR_C_POWER, PIN_PDM_PWR};  // IMU and mic supplies
+  for (uint8_t p : loads) pinMode(p, OUTPUT), digitalWrite(p, LOW);
+  flashSleep();
+  while (digitalRead(BTN) == LOW) delay(10);  // System OFF with the button held = instant wake
+  delay(50);
+  systemOff(BTN, LOW);
+}
+
 void setup() {
   pinMode(VBAT_ENABLE, OUTPUT);
   digitalWrite(VBAT_ENABLE, LOW);  // the core drives it HIGH at boot; keep P0.31 safe once a battery is attached
   pinMode(MOTOR, OUTPUT);
+  digitalWrite(MOTOR, LOW);  // outputs start HIGH in this core: the motor would run through setup
   pinMode(BTN, INPUT_PULLUP);
+  if (readResetReason() & POWER_RESETREAS_OFF_Msk) {  // woken by the button: on only if held, a tap goes back off
+    while (digitalRead(BTN) == LOW && millis() < ON_HOLD_MS) delay(10);
+    if (millis() < ON_HOLD_MS) powerOff();
+  }
   Serial.begin(115200);
+  pinMode(DISP_PWR, OUTPUT);
+  digitalWrite(DISP_PWR, LOW);  // display power on through Q2
+  delay(50);
   tft.begin(SPI_HZ);
+  dispOn = true;
   for (int i = 0; i < nausicaa::NCOL; i++) {
     uint16_t c = tft.color565(nausicaa::PAL[i][0], nausicaa::PAL[i][1], nausicaa::PAL[i][2]);
     pal[i] = c << 8 | c >> 8;  // display wants big endian: swap once here, no swap while sending
@@ -115,6 +161,7 @@ void setup() {
   Bluefruit.ScanResponse.addService(bleuart);  // 128-bit UART UUID doesn't fit the main packet
   Bluefruit.Advertising.restartOnDisconnect(true);
   Bluefruit.Advertising.start(0);
+  while (digitalRead(BTN) == LOW) delay(10);  // the power-on hold is not a press
 }
 
 void loop() {
@@ -152,6 +199,11 @@ void loop() {
     buzzT0 = now, buzzN = 1;
     nausicaa::cheer();
   }
+
+  static uint32_t btnDown = 0;  // held OFF_HOLD_MS: power off
+  if (btn == HIGH) btnDown = 0;
+  else if (!btnDown) btnDown = now;
+  else if (now - btnDown >= OFF_HOLD_MS) powerOff();
 
   uint32_t e = now - buzzT0;
   digitalWrite(MOTOR, e < buzzN * 240 && e % 240 < 120);

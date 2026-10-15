@@ -6,7 +6,7 @@ A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42
   <img src="mechanical/renders/front.png" alt="Case, front view" width="360">
 </p>
 
-**Status:** working on the breadboard (four scenes, BLE messaging, Android app). Case v5 (display header removed, shallow keyring lug) is ready for its first print. The LiPo isn't bought yet, so nothing is assembled in the case.
+**Status:** working on the breadboard (four scenes, BLE messaging, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) is ready for its first print; drawings are still v6. The LiPo isn't bought yet, so nothing is assembled in the case.
 
 ## Hardware
 
@@ -15,7 +15,8 @@ A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42
 | Seeed XIAO nRF52840 Sense | MCU, BLE, IMU, LiPo charger |
 | GC9A01 1.28" 240×240 round TFT | Display |
 | 10×3 mm coin vibration motor + BC337 | Haptics |
-| Tact button, slide switch | Input, power |
+| Tact button + AO3401A | Input and daily on/off in firmware; the MOSFET cuts the display |
+| EG1390 slide switch | Battery switch, from the back under tape (storage, water, hangs) |
 | LiPo 402030 (~200 mAh) | Battery |
 
 Full parts list, pinout and power notes: [electronics/](electronics/).
@@ -45,7 +46,7 @@ docs/           Roadmap
 | --- | --- |
 | [interfaces/watch](interfaces/watch/README.md) | Scenes, flashing, tunables, how to add animations |
 | [interfaces/mobile-app](interfaces/mobile-app/README.md) | App build and the BLE protocol |
-| [electronics](electronics/README.md) | Parts, pinout, motor driver, power budget |
+| [electronics](electronics/README.md) | Parts, pinout, motor driver, power (button on/off), power budget |
 | [electronics/bring-up](electronics/bring-up.md) | Step-by-step build and tests, troubleshooting |
 | [mechanical](mechanical/README.md) | Case design, assembly, printing |
 | [docs/roadmap](docs/roadmap.md) | Planned features and open decisions |
