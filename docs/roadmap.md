@@ -4,9 +4,10 @@ Features planned for the prototype: what each does and what it depends on. How e
 
 ## Working today
 
-- **Scenes:** pixel cat, Pavi, Nausicaa + Teto, Teto ([watch](../interfaces/watch/)). Shake to play.
-- **BLE messaging:** Nordic UART, device name `MysteryChain`. Phone text scrolls in a speech bubble and the motor buzzes twice; button and shake events go to the phone.
-- **Android app:** finds and connects, reconnects on drop, two-way messages and an event list ([mobile app](../interfaces/mobile-app/)). Tested on a Xiaomi Redmi Note 12.
+- **Scenes:** pixel cat, Pavi, Nausicaa + Teto, Teto ([watch](../interfaces/watch/)), one firmware. Shake to play.
+- **BLE messaging:** Nordic UART, device name `MysteryChain`. Phone text scrolls in a speech bubble and the motor buzzes twice; button and shake events go to the phone. Commands start with `#` (O1, [protocol](../interfaces/watch/README.md#protocol)).
+- **Clock sync (A4), find (A3), quick reactions (A6):** see the tables below.
+- **Android app:** finds and connects, reconnects on drop, find, quick reactions, messages and an activity list, dark theme ([mobile app](../interfaces/mobile-app/), [screens](mockups/)). Tested on a Xiaomi Redmi Note 12.
 
 ## Planned features
 
@@ -18,10 +19,10 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | --- | --- | --- | --- |
 | A1 | Notification forwarding | Phone notifications (WhatsApp, SMS…) show app name and title in the bubble, with a vibration pattern per app. Apps are picked in the app; no vibration during quiet hours. Needs Android "Notification access". | O1, O3, S1 |
 | A2 | Incoming call | Caller name on screen, buzzes while ringing, stops when the call ends. No answer/reject. | Same as A1 |
-| A3 | Find my keychain | "Find" in the app: patterned vibration and a blinking screen until the button is pressed. Works during quiet hours too. | O1 |
-| A4 | Clock sync | The phone sends the time on connect; the board keeps time and corrects on each connection. | O1 |
+| A3 | Find my keychain | **Done.** "Find" in the app: patterned vibration and a blinking screen until the button is pressed (or 60 s). Works during quiet hours too. | O1 |
+| A4 | Clock sync | **Done.** The phone sends the time on connect; the board keeps time and corrects on each connection. A button tap shows it. | O1 |
 | A5 | Weather | The phone pulls local weather from open-meteo (free, no key) and periodically sends condition + temperature. Rain, snow, clouds or sun appear in the scene. | O1, O3, A4, K6 |
-| A6 | Quick reactions | One-tap messages in the app (heart, "on my way", "where are you"). Bubble on the board, the pet reacts. | O1 |
+| A6 | Quick reactions | **Done.** One-tap messages in the app (heart, "on my way", "where are you"). Bubble on the board, the pet reacts. | O1 |
 | A7 | Camera shutter / music control | The button acts as a media key (BLE HID): take a photo, play/pause, next track. | O4, decision 2 |
 | A8 | Over-the-air update | Flash firmware over BLE (Bluefruit `BLEDfu`) instead of USB. Must work before the case is closed; needs testing with the XIAO bootloader. | — |
 
@@ -53,8 +54,8 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 
 | ID | What | Why | Used by |
 | --- | --- | --- | --- |
-| O1 | Message protocol | Today every BLE message goes to the bubble. Clock, weather, settings, find and notifications need a message type. Plain text keeps working as now. | A1–A6, S1 |
-| O2 | Persistent storage | Settings and pet stats survive power-off (flash). | K1, S1 |
+| O1 | Message protocol | **Done:** `#command args`, anything else goes to the bubble ([protocol](../interfaces/watch/README.md#protocol)). New commands are added there. | A1–A6, S1 |
+| O2 | Persistent storage | Settings and pet stats survive power-off (flash). Deferred to S1 / K1, its first users. | K1, S1 |
 | O3 | App in the background | The connection stays up and data flows while the app isn't on screen (Android foreground service). | A1, A2, A5, A4 repeats |
 | O4 | Sharing the one button | Feeding, mini game, shutter/music and silencing "find" all use the same button. | K2, K7, A7, A3 |
 

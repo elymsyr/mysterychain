@@ -434,3 +434,4 @@ void step(float dt) {
 }
 
 }  // namespace nausicaa
+namespace scene = nausicaa;  // firmware.ino talks to whichever scene is included through this name

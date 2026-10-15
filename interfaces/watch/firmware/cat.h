@@ -296,3 +296,4 @@ void step(float dt) {
 }
 
 }  // namespace kitty
+namespace scene = kitty;  // firmware.ino talks to whichever scene is included through this name

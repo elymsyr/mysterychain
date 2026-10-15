@@ -1,19 +1,21 @@
 # Watch (device firmware)
 
-Arduino sketches for the keychain's round display. Each folder is one scene, a complete firmware you flash on its own.
+One Arduino sketch for the keychain's round display: [`firmware/firmware.ino`](firmware/firmware.ino). The scene is a header next to it, picked by the `#include` line near the top of the sketch.
 
-| Scene | What happens |
+| Scene header | What happens |
 | --- | --- |
-| [`cat/`](cat/) | Pixel cat on a night lawn. Shake: the yarn ball flies, the cat jumps and plays for 6 s. |
-| [`seven_havens/`](seven_havens/) | Pavi (Seven Havens) on a wall above the rooftops, under an aurora. Shake: her fairy darts off and she chases it. |
-| [`nausicaa_teto/`](nausicaa_teto/) | Nausicaa in a windy valley with Teto on her shoulder. Shake: Teto jumps off, she tries to catch him, then kneels and he climbs back. |
-| [`teto/`](teto/) | Teto in the Sea of Corruption playing with a glowing spore. Shake: the spore is flung, Teto chases it. |
+| [`cat.h`](firmware/cat.h) | Pixel cat on a night lawn. Shake: the yarn ball flies, the cat jumps and plays for 6 s. |
+| [`pavi.h`](firmware/pavi.h) | Pavi (Seven Havens) on a wall above the rooftops, under an aurora. Shake: her fairy darts off and she chases it. |
+| [`nausicaa.h`](firmware/nausicaa.h) | Nausicaa in a windy valley with Teto on her shoulder. Shake: Teto jumps off, she tries to catch him, then kneels and he climbs back. |
+| [`teto.h`](firmware/teto.h) | Teto in the Sea of Corruption playing with a glowing spore. Shake: the spore is flung, Teto chases it. |
 
-All scenes share the same behavior:
+Every scene behaves the same way (screens: [docs/mockups/device_screens.png](../../docs/mockups/device_screens.png)):
 
 - 80×80 pixel scene, scaled 3× to the 240×240 display over SPI DMA, ~30 fps. Motion is tied to real time, so speed holds if fps drops.
-- **BLE** (Nordic UART, name `MysteryChain`): text from the [mobile app](../mobile-app/) scrolls in a speech bubble at the top, the motor buzzes twice, the character cheers.
-- **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone.
+- **BLE** (Nordic UART, name `MysteryChain`): text from the [mobile app](../mobile-app/) scrolls in a speech bubble at the top, the motor buzzes twice, the character cheers. Messages starting with `#` are commands, see [protocol](#protocol).
+- **Clock:** the app sends the phone's time on every connect. Kept until power-off; after that it's back on the next connect.
+- **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone. Once the clock is set, a tap also shows the time (`14:32`) in the bubble for 3 s.
+- **Find** (`#find`): `FIND ME!` in the bubble, the motor buzzes twice and pauses, the screen colors invert twice a second. A button press stops it and sends `found`; `#find 0` stops it from the app; after `FIND_MS` (60 s) it stops by itself and sends `find timeout`. Shakes are ignored while it runs.
 - **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
@@ -22,13 +24,13 @@ All scenes share the same behavior:
 
 Arduino IDE 2 with **Seeed nRF52 Boards** (non-mbed), board **Seeed XIAO nRF52840 Sense**, libraries **Adafruit GC9A01A** and **Seeed Arduino LSM6DS3**. Full setup: [electronics/bring-up.md](../../electronics/bring-up.md#phase-0-tools-and-software).
 
-Open e.g. `cat/cat.ino` and upload. Or with arduino-cli:
+Open `firmware/firmware.ino`, set the scene in the `#include` line, upload. Or with arduino-cli:
 
 ```bash
-arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840Sense --upload -p /dev/ttyACM0 cat
+arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840Sense --upload -p /dev/ttyACM0 firmware
 ```
 
-Tunables at the top of each `.ino`:
+Tunables at the top of `firmware.ino`:
 
 | Constant | Default | Meaning |
 | --- | --- | --- |
@@ -37,10 +39,30 @@ Tunables at the top of each `.ino`:
 | `SHAKE_GAP_MS` | 400 | Minimum time between two shakes |
 | `MOTOR_MASK_MS` | 400 | Shake blackout after the motor stops. Use the value measured in bring-up T8. |
 | `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
+| `CLOCK_MS` | 3000 | How long a button tap shows the time |
+| `FIND_MS` | 60000 | Find stops by itself after this long |
+
+## Protocol
+
+Plain UTF-8 text over Nordic UART, one message per write (MTU 247). A message the board doesn't recognise as a command shows in the bubble, so plain text, and text that only looks like a command (`#1 fan`), keeps working.
+
+| Phone → keychain | Effect |
+| --- | --- |
+| any text | Bubble (max 63 characters; Turkish letters folded to ASCII, other non-ASCII shows as `?`), buzz twice, cheer |
+| `#time <unix s> <utc offset min>` | Set the clock. The app sends it on every connect. |
+| `#find` / `#find 0` | Start / stop find |
+| `#heart` | Three pink hearts in the bubble, buzz twice, cheer |
+
+| Keychain → phone | When |
+| --- | --- |
+| `button N` | Button pressed (N counts since boot) |
+| `shake N (x.xx g)` | Shake detected |
+| `found` | Button pressed during find |
+| `find timeout` | Find stopped by itself after `FIND_MS` |
 
 ## Scene interface
 
-Each scene header (`cat.h`, `pavi.h`, `nausicaa.h`, `teto.h`) is plain C++ with no Arduino dependency, so it can be compiled on a PC and dumped frame by frame. It lives in its own namespace and exposes:
+Each scene header (`cat.h`, `pavi.h`, `nausicaa.h`, `teto.h`) is plain C++ with no Arduino dependency, so it can be compiled on a PC and dumped frame by frame. It lives in its own namespace, ends with `namespace scene = <its namespace>;` (the sketch only talks to `scene::`) and exposes:
 
 | Name | Purpose |
 | --- | --- |
@@ -53,7 +75,7 @@ Each scene header (`cat.h`, `pavi.h`, `nausicaa.h`, `teto.h`) is plain C++ with 
 | `shake()` | React to a shake |
 | `cheer()` | React to a message or button press |
 
-The `.ino` files are identical apart from the namespace they use; to add a scene, copy one and point it at your header.
+To add a scene, put its header in `firmware/` with the same interface and the `namespace scene = …;` line, and include it from `firmware.ino`. The sketch adds one palette entry after the scene's own (`HEART`, index `NCOL`) for the pink hearts.
 
 ## Rules for new animations
 

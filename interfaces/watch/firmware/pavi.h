@@ -382,3 +382,4 @@ void step(float dt) {
 }
 
 }  // namespace pavi
+namespace scene = pavi;  // firmware.ino talks to whichever scene is included through this name

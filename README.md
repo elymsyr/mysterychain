@@ -6,7 +6,7 @@ A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42
   <img src="mechanical/renders/front.png" alt="Case, front view" width="360">
 </p>
 
-**Status:** working on the breadboard (four scenes, BLE messaging, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) is ready for its first print; drawings are still v6. The LiPo isn't bought yet, so nothing is assembled in the case.
+**Status:** working on the breadboard (four scenes, BLE messaging, clock sync, find, quick reactions, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) is ready for its first print; drawings are still v6. The LiPo isn't bought yet, so nothing is assembled in the case.
 
 ## Hardware
 
@@ -25,7 +25,7 @@ Full parts list, pinout and power notes: [electronics/](electronics/).
 
 ```text
 interfaces/
-  watch/        Device firmware: one Arduino sketch per scene (cat, Pavi, Nausicaa + Teto, Teto)
+  watch/        Device firmware: one Arduino sketch, the scene (cat, Pavi, Nausicaa + Teto, Teto) picked by an #include
   mobile-app/   Flutter companion app (Android), talks to the keychain over BLE
 electronics/    Parts, pinout, schematic, bring-up guide and test sketches
 mechanical/     Parametric case (build123d), STEP, print files, renders
@@ -36,7 +36,7 @@ docs/           Roadmap
 
 1. Set up Arduino IDE 2 with the Seeed nRF52 core and two libraries: [bring-up, phase 0](electronics/bring-up.md#phase-0-tools-and-software).
 2. Wire the parts on a breadboard: [pinout](electronics/README.md#pinout).
-3. Flash a scene, e.g. [`interfaces/watch/cat/cat.ino`](interfaces/watch/cat/cat.ino). Shake the board.
+3. Flash [`interfaces/watch/firmware/firmware.ino`](interfaces/watch/firmware/firmware.ino) (scene: the `#include` line). Shake the board.
 4. Run the [mobile app](interfaces/mobile-app/) (`flutter run`) and send the pet a message.
 5. Print the case from [`mechanical/print/`](mechanical/print/) (PETG) and assemble: [mechanical](mechanical/README.md#assembly).
 
