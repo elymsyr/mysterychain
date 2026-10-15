@@ -6,8 +6,10 @@ Tested with: schemdraw 0.23, matplotlib 3.10.9
 Output (this folder):
     schematic.svg/.png                transparent background
     schematic_white.svg/.png          white background
+    schematic_pnp_white.svg/.png      bench variant, USB power (no battery), Q2 = BC327 PNP (`schematic.py pnp`; writes only these)
 Source of truth: ../README.md (pinout, motor driver, power)
 """
+import sys
 from pathlib import Path
 
 import schemdraw
@@ -28,7 +30,7 @@ def unused(xy, side, s='unused'):
          halign='left' if side == 'right' else 'right')
 
 
-def draw():
+def draw(pnp=False):
     d = schemdraw.Drawing(show=False)
     with d:
         d.config(fontsize=11, unit=2.5)
@@ -77,20 +79,29 @@ def draw():
         qx = dx - 4.0
         elm.Line().at(u2.VCC).left(4.0)
         # PFet's natural orientation is vertical: source up, drain down; reverse() puts the gate on the left
-        q2 = elm.PFet(bulk=False).right().reverse().anchor('drain').at((qx, u2.VCC.y + 0.6))
-        text((qx + 1.1, q2.gate.y), 'Q2\nAO3401A', 11, halign='left')
-        elm.Line().at((qx, u2.VCC.y)).to(q2.drain)
+        if pnp:  # bench: PNP until the AO3401A arrives; emitter = source, collector = drain, base = gate (+ R4)
+            q2 = elm.BjtPnp(circle=True).right().anchor('collector').at((qx, u2.VCC.y + 0.6))
+            text((qx + 1.1, q2.base.y), 'Q2\nBC327', 11, halign='left')
+            hi, lo, ctl = q2.emitter, q2.collector, q2.base
+        else:
+            q2 = elm.PFet(bulk=False).right().reverse().anchor('drain').at((qx, u2.VCC.y + 0.6))
+            text((qx + 1.1, q2.gate.y), 'Q2\nAO3401A', 11, halign='left')
+            hi, lo, ctl = q2.source, q2.drain, q2.gate
+        elm.Line().at((qx, u2.VCC.y)).to(lo)
         elm.Dot().at((qx, u2.VCC.y))
-        top = (qx, q2.source.y + 1.4)
-        elm.Line().at(q2.source).to(top)
+        top = (qx, hi.y + 1.4)
+        elm.Line().at(hi).to(top)
         elm.Dot().at(top)
         elm.Vdd().at(top).label('3V3')
-        gx = q2.gate.x - 1.0
-        elm.Line().at(q2.gate).to((gx, q2.gate.y))
-        gdot = elm.Dot().at((gx, q2.gate.y))
-        elm.Resistor().at((gx, q2.gate.y)).to((gx, top[1])).label('R3\n100 kΩ', loc='bottom')
+        gx = ctl.x - 1.0
+        elm.Line().at(ctl).to((gx, ctl.y))
+        gdot = elm.Dot().at((gx, ctl.y))
+        elm.Resistor().at((gx, ctl.y)).to((gx, top[1])).label('R3\n100 kΩ', loc='bottom')
         elm.Line().at((gx, top[1])).to(top)
-        elm.Line().at(gdot.center).left(1.0)
+        if pnp:
+            elm.Resistor().at(gdot.center).left(2.5).label('R4\n1 kΩ', loc='bottom')
+        else:
+            elm.Line().at(gdot.center).left(1.0)
         elm.Tag().left().label('LCD_EN', fontsize=9)
 
         # ---- U1 left: button and display control lines ----
@@ -136,20 +147,24 @@ def draw():
         elm.Dot().at((dxx, rail))
 
         # ---- Battery, through the battery switch SW2 to the BAT pads on the underside of the XIAO ----
-        elm.Switch().at(x.BATP).down(1.6).label('SW2\nbattery switch\nEG1390', loc='bottom', ofst=(0, 0.2))
-        b1 = elm.BatteryCell().down(3.0).label('B1\nLiPo 402030\n3.7 V ~200 mAh\nprotected (PCM)', loc='bottom', ofst=(0, 0.3))
-        text((b1.center.x - 0.45, b1.center.y + 0.35), '+', 12)  # long plate = positive
-        bb = elm.Line().down(0.6)
-        elm.Line().at(bb.end).to((x.BATN.x, bb.end.y))
-        elm.Line().toy(x.BATN.y)
-        elm.Dot().at((x.BATN.x, bb.end.y + 2.0))
-        elm.Line().at((x.BATN.x, bb.end.y + 2.0)).right(1.2)
-        elm.Ground()
-        text((x.BATN.x + 0.3, x.BATN.y - 1.0), 'BAT− = GND', 8, color='gray', halign='left')
+        if pnp:  # bench: USB only, no battery
+            text(((x.BATP.x + x.BATN.x) / 2, x.BATP.y - 0.8), 'BAT+ / BAT− unused: bench runs on USB only, no battery', 9, color='gray')
+        else:
+            elm.Switch().at(x.BATP).down(1.6).label('SW2\nbattery switch\nEG1390', loc='bottom', ofst=(0, 0.2))
+            b1 = elm.BatteryCell().down(3.0).label('B1\nLiPo 402030\n3.7 V ~200 mAh\nprotected (PCM)', loc='bottom', ofst=(0, 0.3))
+            text((b1.center.x - 0.45, b1.center.y + 0.35), '+', 12)  # long plate = positive
+            bb = elm.Line().down(0.6)
+            elm.Line().at(bb.end).to((x.BATN.x, bb.end.y))
+            elm.Line().toy(x.BATN.y)
+            elm.Dot().at((x.BATN.x, bb.end.y + 2.0))
+            elm.Line().at((x.BATN.x, bb.end.y + 2.0)).right(1.2)
+            elm.Ground()
+            text((x.BATN.x + 0.3, x.BATN.y - 1.0), 'BAT− = GND', 8, color='gray', halign='left')
 
         # ---- title and notes ----
         title_y = 20.0
-        text((-13.5, title_y), 'MysteryChain — schematic  (v3, 15 Oct 2026)', 16, halign='left')
+        title = 'MysteryChain — schematic, bench variant: USB power, Q2 = PNP  (v3, 15 Oct 2026)' if pnp else 'MysteryChain — schematic  (v3, 15 Oct 2026)'
+        text((-13.5, title_y), title, 16, halign='left')
         text((-13.5, title_y - 0.9), 'Pinout and notes: electronics/README.md · Build and tests: electronics/bring-up.md', 9,
              color='dimgray', halign='left')
         notes = [
@@ -159,16 +174,28 @@ def draw():
             'Solder C1, C2 and D1 close to the motor and the 3V3 node. Use a ceramic C2: the battery stays connected while off, '
             'and a tantalum may leak up to ~6 µA (0.01·C·V).',
             'Daily on/off is SW1 in firmware: display pins LOW, Q2 off, System OFF; hold SW1 ~1 s to wake, 3 s to turn off; '
-            'USB plug-in also wakes it. SW2 (reached from the back, under tape) disconnects the battery for storage, '
-            'water or a hang. It charges only with SW2 on (the charger is on the XIAO side of SW2).',
+            'USB plug-in also wakes it. '
+            + ('Bench: no battery and no SW2; unplug USB for a full power cycle.' if pnp else
+               'SW2 (reached from the back, under tape) disconnects the battery for storage, '
+               'water or a hang. It charges only with SW2 on (the charger is on the XIAO side of SW2).'),
             'Q2 cuts the display: its backlight has no pin and draws ~15–25 mA whenever VCC is present. '
-            'R3 keeps it off while D7 is not driven (reset, boot, System OFF with D7 HIGH). AO3401A SOT-23: 1 G, 2 S, 3 D.',
+            'R3 keeps it off while D7 is not driven (reset, boot, System OFF with D7 HIGH). '
+            + ('Bench variant below.' if pnp else 'AO3401A SOT-23: 1 G, 2 S, 3 D.'),
             'XIAO pins 1–14 are the edge pads, drawn as seen from the component side (USB-C up). '
             'In the case the component side faces the back, so seen from the front the left and right rows swap. BAT+ and BAT− are underside pads.',
             'Leave D9 unconnected: the display library claims it as MISO when it starts SPI. '
             '5V is USB 5 V; never connect the battery there.',
             'Display header pin order varies by vendor; wire by the labels printed on the board.',
         ]
+        if pnp:
+            notes.append('Bench variant, Q2 = PNP until the AO3401A arrives: BC327, or 2N2907 / S8550 / 2N3906 (never an NPN). '
+                         'Firmware unchanged, D7 LOW = on.\n'
+                         '    R4 1 kΩ: ~2.5 mA base current saturates it for the display\'s 25–40 mA, ~0.1 V drop. '
+                         'R3 100 kΩ base–emitter keeps it off.\n'
+                         '    Legs: BC327 C–B–E (like BC337); S8550, 2N2907, 2N3906 E–B–C. Verify with a diode test, black probe on B.\n'
+                         '    TO-92 + R4 do not fit the Q2 spot in the case: bench only.\n'
+                         '    No battery: VBAT reads the charger output and the charge LED may flicker; ignore both. '
+                         'The low-battery cut-off stays off on USB.')
         text((-13.5, -7.0), 'Notes\n' + '\n'.join(f'{i}. {n}' for i, n in enumerate(notes, 1)), 9, halign='left', valign='top')
     return d
 
@@ -193,6 +220,13 @@ EXPECTED = [
     {'Q1.collector', 'M1.1', 'D1.1'},
     {'U1.BATP', 'SW2.1'},
     {'SW2.2', 'B1.1'},
+]
+EXPECTED_PNP = [n for n in EXPECTED if not n & {'Q2.source', 'Q2.drain', 'Q2.gate', 'SW2.1', 'SW2.2', 'GND'}] + [
+    {'GND', 'U1.GND', 'U2.GND', 'SW1.2', 'R2.2', 'Q1.emitter', 'C1.2', 'C2.2'},
+    {'3V3', 'U1.V33', 'M1.2', 'D1.2', 'C1.1', 'C2.1', 'Q2.emitter', 'R3.2'},
+    {'U2.VCC', 'Q2.collector'},
+    {'LCD_EN', 'U1.D7', 'R4.2'},
+    {'R4.1', 'Q2.base', 'R3.1'},
 ]
 
 
@@ -227,8 +261,8 @@ def netlist(d):
             ics.append(e)
             for pin in (U1_PINS if len(ics) == 1 else U2_PINS):
                 names.setdefault(key(a[pin]), set()).add(f'U{len(ics)}.{pin}')
-        elif n in ('BjtNpn', 'PFet'):
-            for t in ('base', 'collector', 'emitter') if n == 'BjtNpn' else ('source', 'drain', 'gate'):
+        elif n in ('BjtNpn', 'BjtPnp', 'PFet'):
+            for t in ('source', 'drain', 'gate') if n == 'PFet' else ('base', 'collector', 'emitter'):
                 names.setdefault(key(a[t]), set()).add(f'{"Q1" if n == "BjtNpn" else "Q2"}.{t}')
         elif n != 'Label' and n != 'EncircleBox':  # two-terminal parts: name = first line of the label
             ref = lab[0].split('\n')[0]
@@ -272,8 +306,8 @@ def netlist(d):
     return [n for n in nets.values() if len(n) > 1], problems
 
 
-def check(d):
-    expected = [set(n) for n in EXPECTED]
+def check(d, pnp=False):
+    expected = [set(n) for n in (EXPECTED_PNP if pnp else EXPECTED)]
     nets, problems = netlist(d)
     got = {frozenset(n) for n in nets}
     want = {frozenset(n) for n in expected}
@@ -285,7 +319,12 @@ def check(d):
     return len(got)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__' and sys.argv[1:] == ['pnp']:
+    d = draw(pnp=True)
+    print(check(d, pnp=True), 'nets, match expected (PNP bench variant)')
+    d.save(f'{OUT}_pnp_white.svg', transparent=False)
+    d.save(f'{OUT}_pnp_white.png', transparent=False, dpi=150)
+elif __name__ == '__main__':
     d = draw()
     print(check(d), 'nets, match expected')
     d.save(f'{OUT}.svg')

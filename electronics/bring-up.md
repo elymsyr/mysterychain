@@ -119,6 +119,8 @@ On the bench the battery + lead plugs into the breadboard; pulling it out is the
 
 **Q2 on the bench.** Battery out, USB out. Put the AO3401A on a SOT-23 adapter (or solder three thin wires to it), using the pinout you checked in phase 1. Source → 3V3 rail, drain → display VCC (move the display VCC wire there from 3V3), gate → the D7 wire, 100 kΩ between gate and source. Short check, then USB and T4: it still runs (T4 drives D7 LOW).
 
+No AO3401A yet? Use a PNP (BC327 + 1 kΩ base resistor) on a USB-only bench: [`schematic_pnp_white`](schematic/schematic_pnp_white.png), test with **T11** ([`tests/t11_bench_pnp`](tests/t11_bench_pnp/t11_bench_pnp.ino)). **Pass:** short press turns the display fully dark and back on with a picture; `s` (20 off/on) and long press (motor) never restart the uptime; with the display on, 3V3 − display VCC < 0.15 V.
+
 **T7 Battery** ([`tests/t7_battery`](tests/t7_battery/t7_battery.ino)). The sketch drives P0.14 LOW first thing (see [Power](README.md#power)); the divider then draws only ~3 µA.
 
 Calibrate: battery in, USB in, meter on BAT+/BAT−, compare with serial. `VBAT_CAL = meter / reading`; write it into T7, T8 and T10.
