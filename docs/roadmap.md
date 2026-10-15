@@ -6,7 +6,7 @@ Features planned for the prototype: what each does and what it depends on. How e
 
 - **Scenes:** pixel cat, Pavi, Nausicaa + Teto, Teto ([watch](../interfaces/watch/)), one firmware. Shake to play.
 - **BLE messaging:** Nordic UART, device name `MysteryChain`. Phone text scrolls in a speech bubble and the motor buzzes twice; button and shake events go to the phone. Commands start with `#` (O1, [protocol](../interfaces/watch/README.md#protocol)).
-- **Clock sync (A4), find (A3), quick reactions (A6):** see the tables below.
+- **Clock sync (A4), find (A3), quick reactions (A6):** see the tables below. Tested end to end on the bench PNP board (USB only, [T11](../electronics/bring-up.md)) with the app on 2026-10-15.
 - **Android app:** finds and connects, reconnects on drop, find, quick reactions, messages and an activity list, dark theme ([mobile app](../interfaces/mobile-app/), [screens](mockups/)). Tested on a Xiaomi Redmi Note 12.
 
 ## Planned features
@@ -65,16 +65,16 @@ Phases 2 and 3 don't depend on each other and can run in parallel.
 
 ```mermaid
 flowchart TD
-    F1["Phase 1 · Foundation<br/>O1 protocol, O2 storage,<br/>A4 clock sync, A8 OTA"]
+    F1["Phase 1 · Foundation<br/>O1 protocol ✓, A4 clock sync ✓,<br/>O2 storage (with S1/K1), A8 OTA"]
     F1 --> F2["Phase 2 · The pet lives<br/>K1 stats, K6 day/night, K2 feeding,<br/>K3 steps, K4 petting, K5 animations"]
-    F1 --> F3["Phase 3 · Phone<br/>A3 find, A6 reactions, S1 settings,<br/>O3 background, A1 notifications, A2 calls, A5 weather"]
+    F1 --> F3["Phase 3 · Phone<br/>A3 find ✓, A6 reactions ✓, S1 settings,<br/>O3 background, A1 notifications, A2 calls, A5 weather"]
     F2 --> F4["Phase 4 · Extras<br/>K7 mini game, A7 shutter / music"]
     F3 --> F4
     L["LiPo arrives"] -.-> F5["Phase 5 · Power<br/>S2 battery level,<br/>S3 power saving (on request)"]
     F1 --> F5
 ```
 
-OTA is in phase 1 because USB updates get awkward once the case is closed.
+✓ = done. OTA is in phase 1 because USB updates get awkward once the case is closed.
 
 ## Open decisions
 
