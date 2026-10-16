@@ -29,7 +29,7 @@ const uint32_t MOTOR_MASK_MS = 400;  // ignore shakes this long after the motor 
 const uint32_t CLOCK_MS = 3000;      // a button tap shows the time this long
 const uint32_t FIND_MS = 60000;      // find stops by itself after this long: a keychain out of reach mustn't drain the battery
 const float MOVE_G = 0.15;           // movement that keeps the screen on: |a| off 1 g by this much (check the at-rest noise)
-const uint32_t IDLE_OFF_MS = 300000; // screen off after this long without movement or button
+const uint32_t IDLE_OFF_MS = 60000;  // screen off after this long without movement or button
 const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
 const uint32_t MUSIC_MS = 12000;     // pet scenes: the music screen stays at least this long after a track change
 // Pet scene only:

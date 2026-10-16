@@ -16,7 +16,7 @@ Every scene behaves the same way (screens: [docs/mockups/device_screens.png](../
 - **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone. Once the clock is set, a tap also shows the time (`14:32`) in the bubble for 3 s.
 - **Find** (`#find`): `FIND ME!` in the bubble, the motor buzzes twice and pauses, the screen colors invert twice a second. A button press stops it and sends `found`; `#find 0` stops it from the app; after `FIND_MS` (60 s) it stops by itself and sends `find timeout`. Shakes are ignored while it runs.
 - **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
-- **Screen off:** no movement (`MOVE_G`) and no button for 5 min: the display goes dark (Q2 cut), BLE stays up. A shake (`SHAKE_G`), the button or `#find` brings it back; the waking shake is not sent as `shake N`. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
+- **Screen off:** no movement (`MOVE_G`) and no button for 1 min: the display goes dark (Q2 cut), BLE stays up. A shake (`SHAKE_G`), the button or `#find` brings it back; the waking shake is not sent as `shake N`. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
 
@@ -55,7 +55,7 @@ Tunables at the top of `firmware.ino`:
 | `MOTOR_MASK_MS` | 400 | Shake blackout after the motor stops. Use the value measured in bring-up T8. |
 | `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
 | `MOVE_G` | 0.15 | Movement that keeps the screen on. Must sit above the at-rest noise |
-| `IDLE_OFF_MS` | 300000 | Screen off after this long without movement or button |
+| `IDLE_OFF_MS` | 60000 | Screen off after this long without movement or button |
 | `CLOCK_MS` | 3000 | How long a button tap shows the time |
 | `MUSIC_MS` | 12000 | Pets: the music screen stays at least this long after a track change |
 | `FIND_MS` | 60000 | Find stops by itself after this long |
