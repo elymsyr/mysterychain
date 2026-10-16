@@ -2,6 +2,7 @@
 // Finds the board by name and connects; if the link drops, Android reconnects on its own once in range (autoConnect).
 // On connect it sends the phone's time (#time). Text and quick reactions show up in the board's speech bubble,
 // Find makes it buzz and blink (#find); the board's button/shake/found events land in the activity list.
+// Pet scene (cat): the board reports `stats` and `settings`; the app shows the stats, feeds (#feed) and sets (#set).
 // Look: docs/mockups/app_screens.png. Flat dark theme, one accent taken from the cat's fur.
 import 'dart:async';
 import 'dart:convert';
@@ -30,6 +31,8 @@ void main() => runApp(MaterialApp(
         scaffoldBackgroundColor: bg,
         colorScheme: const ColorScheme.dark(primary: accent, onPrimary: accentInk, surface: bg, onSurface: text1),
         dividerTheme: const DividerThemeData(color: line, thickness: 1, space: 1),
+        appBarTheme: const AppBarTheme(
+            backgroundColor: bg, foregroundColor: text1, elevation: 0, surfaceTintColor: Colors.transparent),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
             foregroundColor: text1,
@@ -58,6 +61,8 @@ void main() => runApp(MaterialApp(
 enum Kind { sent, pet, sys }
 
 typedef PetEvent = ({DateTime at, Kind kind, IconData icon, String text});
+typedef Stats = ({int steps, String mood});
+typedef Settings = ({bool vib, double shake, int from, int to, String name}); // night from == to: no night window
 
 String hhmm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
@@ -74,6 +79,8 @@ class _PetPageState extends State<PetPage> {
   BluetoothCharacteristic? rx; // non-null = connected and ready
   DateTime? synced; // when the board last got the time
   bool ringing = false; // Find is running on the board
+  Stats? stats; // null: not a pet scene, or nothing heard yet
+  Settings? settings;
   final events = <PetEvent>[];
   final input = TextEditingController();
   final subs = <StreamSubscription>[];
@@ -136,9 +143,9 @@ class _PetPageState extends State<PetPage> {
       final uart = (await d.discoverServices()).firstWhere((s) => s.uuid == uartService);
       final tx = uart.characteristics.firstWhere((c) => c.uuid == txUuid);
       d.cancelWhenDisconnected(tx.onValueReceived.listen((v) {
-        final text = utf8.decode(v, allowMalformed: true).trim();
-        if (text == 'found' || text == 'find timeout') setState(() => ringing = false);
-        log(Kind.pet, Icons.pets, text);
+        for (final text in utf8.decode(v, allowMalformed: true).split('\n')) {
+          if (text.trim().isNotEmpty) onLine(text.trim());
+        }
       }));
       await tx.setNotifyValue(true);
       setState(() {
@@ -154,6 +161,29 @@ class _PetPageState extends State<PetPage> {
     } catch (e) {
       setState(() => status = 'Setup error'); // retried on the next reconnect
       log(Kind.sys, Icons.error_outline, 'Setup error: $e');
+    }
+  }
+
+  // One line from the board (interfaces/watch/README.md#protocol). stats/settings update the screen, the rest is logged.
+  void onLine(String text) {
+    final st = RegExp(r'^stats (\d+) (\w+)$').firstMatch(text);
+    final se = RegExp(r'^settings vib=(\d) shake=([\d.]+) night=(\d+)-(\d+) name=(.*)$').firstMatch(text);
+    final game = RegExp(r'^game (\d+) best (\d+)$').firstMatch(text);
+    int n(RegExpMatch m, int i) => int.parse(m[i]!);
+    if (st != null) {
+      setState(() => stats = (steps: n(st, 1), mood: st[2]!));
+    } else if (se != null) {
+      setState(() => settings =
+          (vib: se[1] == '1', shake: double.parse(se[2]!), from: n(se, 3), to: n(se, 4), name: se[5]!));
+    } else if (game != null) {
+      log(Kind.pet, Icons.sports_esports_outlined, 'Game: ${game[1]} (best ${game[2]})');
+    } else if (text == 'fed') {
+      log(Kind.pet, Icons.restaurant, 'Ate');
+    } else if (text == 'full') {
+      log(Kind.pet, Icons.restaurant, 'Not hungry');
+    } else {
+      if (text == 'found' || text == 'find timeout') setState(() => ringing = false);
+      log(Kind.pet, Icons.pets, text);
     }
   }
 
@@ -182,6 +212,13 @@ class _PetPageState extends State<PetPage> {
     if (await write(r == '♥' ? '#heart' : r)) log(Kind.sent, Icons.north_east, r);
   }
 
+  Future<void> feed() async {
+    if (await write('#feed')) log(Kind.sent, Icons.north_east, 'Feed');
+  }
+
+  void openSettings() => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => SettingsPage(initial: settings!, send: write)));
+
   Future<void> find(bool on) async {
     if (!await write(on ? '#find' : '#find 0')) return;
     setState(() => ringing = on);
@@ -197,8 +234,17 @@ class _PetPageState extends State<PetPage> {
         body: SafeArea(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             header(connected),
+            if (stats != null) statsPanel(stats!),
             const Divider(),
-            Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 0), child: ringing ? ringPanel() : findButton(connected)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: ringing
+                  ? ringPanel()
+                  : Row(children: [
+                      Expanded(child: findButton(connected)),
+                      if (stats != null) ...[const SizedBox(width: 8), feedButton(connected)],
+                    ]),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -238,17 +284,41 @@ class _PetPageState extends State<PetPage> {
             ),
           ),
           const SizedBox(width: 12),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('MysteryChain', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 2),
-            Row(children: [
-              Icon(Icons.circle, size: 8, color: connected ? ok : text3),
-              const SizedBox(width: 6),
-              Text(connected && synced != null ? '$status · clock synced ${hhmm(synced!)}' : status,
-                  style: const TextStyle(fontSize: 13, color: text2)),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(settings?.name ?? 'MysteryChain', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Row(children: [
+                Icon(Icons.circle, size: 8, color: connected ? ok : text3),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(connected && synced != null ? '$status · clock synced ${hhmm(synced!)}' : status,
+                      overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: text2)),
+                ),
+              ]),
             ]),
-          ]),
+          ),
+          if (settings != null)
+            IconButton(
+              onPressed: connected ? openSettings : null,
+              icon: const Icon(Icons.settings_outlined),
+              color: text2,
+              tooltip: 'Settings',
+            ),
         ]),
+      );
+
+  // Under the header: today's steps and mood (the pet's 0-100 stats stay on the board).
+  Widget statsPanel(Stats s) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Text('${s.steps} steps today · ${s.mood}', style: const TextStyle(fontSize: 13, color: text2)),
+      );
+
+  Widget feedButton(bool connected) => OutlinedButton.icon(
+        onPressed: connected ? feed : null,
+        icon: const Icon(Icons.restaurant, size: 18),
+        label: const Text('Feed'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
       );
 
   Widget findButton(bool connected) => OutlinedButton.icon(
@@ -349,6 +419,112 @@ class _PetPageState extends State<PetPage> {
           ),
         ]),
       );
+}
+
+// Pet settings, kept on the board: every change goes out as `#set ...` at once; the board answers with `settings`.
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key, required this.initial, required this.send});
+  final Settings initial;
+  final Future<bool> Function(String) send;
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late Settings s = widget.initial;
+  late final name = TextEditingController(text: widget.initial.name);
+
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  void set(String cmd, Settings next) {
+    setState(() => s = next);
+    widget.send('#set $cmd');
+  }
+
+  void saveName() {
+    final v = name.text.trim();
+    if (v.isNotEmpty && v != s.name) set('name $v', (vib: s.vib, shake: s.shake, from: s.from, to: s.to, name: v));
+    FocusScope.of(context).unfocus();
+  }
+
+  void night(int from, int to) => set('night $from $to', (vib: s.vib, shake: s.shake, from: from, to: to, name: s.name));
+
+  Widget hour(int v, void Function(int) on) => DropdownButton<int>(
+        value: v,
+        dropdownColor: surface,
+        underline: const SizedBox(),
+        items: [for (var h = 0; h < 24; h++) DropdownMenuItem(value: h, child: Text('${h.toString().padLeft(2, '0')}:00'))],
+        onChanged: (h) => on(h!),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    const label = TextStyle(fontSize: 13, color: text2), hint = TextStyle(fontSize: 13, color: text3);
+    final nightOn = s.from != s.to;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+        const Text('Name', style: label),
+        const SizedBox(height: 8),
+        TextField(
+          controller: name,
+          maxLength: 12, // the board keeps 12 ASCII characters
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => saveName(),
+          decoration: InputDecoration(
+            counterText: '',
+            isDense: true,
+            suffixIcon: IconButton(icon: const Icon(Icons.check, size: 20), onPressed: saveName),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Divider(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Vibration'),
+          subtitle: const Text('Find always buzzes', style: hint),
+          value: s.vib,
+          onChanged: (v) => set('vib ${v ? 1 : 0}', (vib: v, shake: s.shake, from: s.from, to: s.to, name: s.name)),
+        ),
+        const Divider(),
+        const SizedBox(height: 12),
+        Text('Shake threshold: ${s.shake.toStringAsFixed(2)} g', style: label),
+        const Text('Lower reacts to gentler shakes', style: hint),
+        Slider(
+          value: s.shake.clamp(.3, 1),
+          min: .3,
+          max: 1,
+          divisions: 14,
+          label: s.shake.toStringAsFixed(2),
+          onChanged: (v) => setState(() => s = (vib: s.vib, shake: v, from: s.from, to: s.to, name: s.name)),
+          onChangeEnd: (v) => set('shake ${v.toStringAsFixed(2)}', s),
+        ),
+        const Divider(),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Night'),
+          subtitle: const Text('The pet sleeps and the motor is quiet', style: hint),
+          value: nightOn,
+          onChanged: (v) => v ? night(23, 7) : night(0, 0),
+        ),
+        if (nightOn)
+          Row(children: [
+            const Text('From', style: label),
+            const SizedBox(width: 12),
+            hour(s.from, (h) => night(h, s.to)),
+            const SizedBox(width: 24),
+            const Text('to', style: label),
+            const SizedBox(width: 12),
+            hour(s.to, (h) => night(s.from, h)),
+          ]),
+      ]),
+    );
+  }
 }
 
 // The cat's head, eyes open (HEAD[0] in interfaces/watch/firmware/cat.h): K ink, O fur, W cream, P pink.
