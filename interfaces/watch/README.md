@@ -74,6 +74,8 @@ Plain UTF-8 text over Nordic UART, one message per write (MTU 247). A message th
 | `#time <unix s> <utc offset min>` | Set the clock. The app sends it on every connect. |
 | `#find` / `#find 0` | Start / stop find |
 | `#heart` | Three pink hearts in the bubble, buzz twice, cheer |
+| `#call <caller>` / `#call 0` | A call rings: caller in the bubble, ring buzz (0.4 s every second) / answered or gone: bubble and buzz stop. Stops by itself after `CALL_MS` (45 s). Sent by the app's background link. |
+| `#music <title - artist>` | The phone's track changed: ♫ and the text in the bubble, no buzz, no cheer. Sent by the app's background link. |
 | `#feed` | Cat: feed (answers `fed` or `full`) |
 | `#stats` | Cat: send `stats` now |
 | `#set vib 0\|1` | Cat: motor off / on (find always buzzes) |

@@ -26,6 +26,7 @@ const uint32_t SHAKE_GAP_MS = 400;   // don't count one shake several times
 const uint32_t MOTOR_MASK_MS = 400;  // ignore shakes this long after the motor stops (use the value measured in T8)
 const uint32_t CLOCK_MS = 3000;      // a button tap shows the time this long
 const uint32_t FIND_MS = 60000;      // find stops by itself after this long: a keychain out of reach mustn't drain the battery
+const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
 // Pet scene only:
 const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: runner game (a buzz says "release now")
 const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for a second one (double tap = feed)
@@ -268,6 +269,8 @@ float shakeLimit() {
 //   #time <unix s> <utc offset min>   set the clock (the app sends it on every connect)
 //   #find  /  #find 0                 start / stop find
 //   #heart                            hearts in the bubble
+//   #call <caller>  /  #call 0        a call rings: name in the bubble + ring buzz / answered or gone
+//   #music <title - artist>           the phone's track changed: in the bubble, quiet
 //   pet scene: #feed, #stats, #set vib|shake|night|name ...  (interfaces/watch/README.md#protocol)
 // Plain text, and anything else starting with '#', shows in the bubble.
 void receive(uint8_t *rx, int n) {
@@ -297,6 +300,20 @@ void receive(uint8_t *rx, int n) {
     show(2, HEART);
 #ifdef SCENE_PET
     pet::message();
+#endif
+  } else if (!strcmp(s, "#call 0")) {
+    msgDur = 0;
+    buzz(0);
+  } else if (!strncmp(s, "#call ", 6)) {
+    toAscii(rx + 6, n - 6, msg, sizeof msg);
+    show(0);
+    msgDur = CALL_MS;
+    buzz(CALL_MS / 1000, 400, 1000);  // ring: 0.4 s every second
+  } else if (!strncmp(s, "#music ", 7)) {
+    strcpy(msg, "\x0E ");  // font glyph 14 is a music note (13 would be eaten as '\r')
+    toAscii(rx + 7, n - 7, msg + 2, sizeof msg - 2);
+    show(0, scene::INK, false);
+#ifdef SCENE_PET
   } else if (!strcmp(s, "#feed")) {
     feed();
   } else if (!strcmp(s, "#stats")) {
