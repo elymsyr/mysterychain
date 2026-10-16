@@ -36,6 +36,19 @@ static bool tiltHits(float g, float speed, float dt) {
   game.on = false;
   return d;
 }
+#elif defined(NAUSICAA)
+// Nausicaa's game with no planes coming on their own: one plane of `kind` at x, the tilt `g` and the trigger held all
+// along, until the plane is gone (shot down, crashed, flown past) or `secs`. True = she was shot down / rammed.
+static bool fight(int kind, float x, float g, bool fire, float secs) {
+  using namespace run;
+  gameStart();
+  spawnT = 1e9f;
+  planes[0] = {x, 0, x, 0, 0, 0.5f, (int8_t)PLANE[kind].hp, (uint8_t)kind, true};
+  for (float t = 0; t < secs && !game.dead && planes[0].on; t += 1 / 60.f) gameTilt(g), gameInput(fire), gameStep(1 / 60.f);
+  bool d = game.dead;
+  game.on = false;
+  return d;
+}
 #else
 // Runs one game obstacle at a fixed speed; the button is held for `hold` s at the best moment. True = cleared.
 static bool clears(int kind, float speed, float hold) {
@@ -147,6 +160,40 @@ int main() {
   for (auto [g, l] : {std::pair{0.3f, 0}, {0.4f, 1}, {0.25f, 1}, {0.1f, 0}, {-0.4f, -1}, {-0.25f, -1}, {0.5f, 1}})
     run::gameTilt(g), assert(run::lane == l);
   run::game.on = false;
+#elif defined(NAUSICAA)
+  // Nausicaa: the tilt sets where she flies; held fire jams the gun in ~2 s, it fires again only once fully cooled;
+  // a gunship coming straight at her is shot down, unshot it rams her, a step aside it misses; a corvette's aimed
+  // shots get her if she stays put.
+  s = Saved();
+  {
+    using namespace run;
+    gameStart();
+    spawnT = 1e9f;
+    for (auto [g, x] : {std::pair{0.f, 40.f}, {0.5f, 40 + REACH_X}, {-2.f, 40 - REACH_X}, {0.25f, 40 + REACH_X / 2}}) {
+      for (int i = 0; i < 60; i++) gameTilt(g), gameStep(1 / 60.f);
+      assert(fabsf(mx - x) < 0.1f);  // there within a second
+    }
+    float t = 0;
+    for (; !jam && t < 5; t += 1 / 60.f) gameInput(true), gameStep(1 / 60.f);
+    assert(jam && t > 1.5f && t < 3);
+    int fired = 0;
+    for (; jam; t += 1 / 60.f) {
+      gameInput(true), gameStep(1 / 60.f);
+      for (auto &s : shots) fired += jam && s.on && s.y > PY - 8;
+    }
+    assert(!fired && t > 3 && t < 5);  // jammed for ~1.4 s, then it fires again
+    for (int i = 0; i < 30; i++) gameInput(false), gameStep(1 / 60.f);
+    gameInput(true), gameStep(1 / 60.f);  // a press fires right away
+    for (auto &s : shots) fired += s.on && s.y > PY - 8;
+    assert(fired == 1);
+    game.on = false;
+  }
+  using run::GUNSHIP, run::CORVETTE, run::CROW, run::game;
+  assert(!fight(GUNSHIP, 40, 0, true, 4) && game.score == 1);
+  assert(fight(GUNSHIP, 40, 0, false, 4));
+  assert(!fight(GUNSHIP, 40, 0.5f, false, 4) && game.score == 0);
+  assert(fight(CORVETTE, 40, 0, false, 8));
+  assert(!fight(CROW, 40, 0.3f, true, 10) && game.score == 8);
 #else
   // Runner: a tap clears a pot, not a fence; a held jump clears a fence; any jump hits a bird.
   s = Saved();

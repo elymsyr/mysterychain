@@ -39,7 +39,7 @@ const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double t
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
 const uint8_t TAP_THS = 2;           // IMU tap threshold, x 0.5 g at the 16 g range: 3 missed half the taps through the printed case
 const uint32_t SAVE_S = 600;         // stats saved to flash this often (and on feed, settings, new best, power off)
-const int TILT_AXIS = 1;             // Pavi's game: accel axis along the screen's left-right (0 x, 1 y, 2 z; check on the device)
+const int TILT_AXIS = 1;             // Pavi's and Nausicaa's games: accel axis along the screen's left-right (0 x, 1 y, 2 z; check on the device)
 const float TILT_SIGN = -1;          // ... and its sign: tilted right must read + (-1 flips it)
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
@@ -639,7 +639,7 @@ void loop() {
   static uint32_t btnT = 0;  // last button edge, for TAP_GUARD_MS
   if (pressed || released) btnT = now;
   // Tap: clock after TAP_WAIT_MS; double tap: feed; hold 1-3 s and release: game; hold 3 s: off.
-  // In the game: the button is the jump (held = higher; Pavi steers by tilt instead), a press after a game over restarts, hold 3 s leaves.
+  // In the game: the button is the jump (held = higher; Pavi steers by tilt instead, Nausicaa steers by tilt and fires), a press after a game over restarts, hold 3 s leaves.
   static uint32_t downT = 0, tapT = 0;
   static bool tapPending = false, second = false, consumed = false, longBuzzed = false;  // consumed: this press is used up
   if (pressed) {
@@ -659,7 +659,7 @@ void loop() {
     }
   }
   if (scene::game.on) scene::gameInput(btn == LOW && !consumed);
-  if (scene::game.on && imuOk) {  // sideways tilt steers Pavi's game (the runner ignores it)
+  if (scene::game.on && imuOk) {  // sideways tilt steers Pavi's and Nausicaa's games (the runner ignores it)
     static float tilt = 0;
     float a = TILT_AXIS == 0 ? imu.readFloatAccelX() : TILT_AXIS == 1 ? imu.readFloatAccelY() : imu.readFloatAccelZ();
     tilt += (TILT_SIGN * a - tilt) * 0.4f;  // low-pass: a hand jolt or the motor doesn't flip the lane

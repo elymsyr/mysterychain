@@ -1,7 +1,8 @@
 // Nausicaa (Valley of the Wind) and Teto, the fox-squirrel on her shoulder: draws into an 80x80 color-indexed buffer
 // (fb), scaled 3x on screen. No Arduino dependency: also compiles on a PC for frame-by-frame testing (interfaces/watch/test).
-// A pet like the cat and Pavi (pet.h): her mood picks what she does, the windy valley follows the clock (tint), and she
-// has the runner game (game.h). Shake: Teto jumps off, she chases him, then kneels and he climbs back.
+// A pet like the cat and Pavi (pet.h): her mood picks what she does, the windy valley follows the clock (tint), and her
+// game is an air fight on the Mehve, seen from above (gameTilt + button, below). Shake: Teto jumps off, she chases him,
+// then kneels and he climbs back.
 // Travel (travel()): she flies her glider (the Mehve) over the valley, the layers scroll by depth (parallax). The music
 // screen shows it; now and then she also takes off on her own.
 #pragma once
@@ -22,7 +23,7 @@ const float G = 260;            // gravity, px/s²
 enum : uint8_t {
   SKY0, SKY1, SKY2, SKY3, CLOUD, CLOUD2, HILL, HILL2, MILL, GRASS, GRASS2, GRASSL, WIND, STAR, SUN, MOON, SHADOW, TREE,
   INK, SKIN, HAIR, HAIR2, HAIRL, EYE, CREAM, MOUTH, EARRING, TUNIC, TUNIC2, BELT, PANTS, FUR, FUR2, TEYE,
-  PINK, APPLE, LEAF, LEAF2, GREY, CLAY, SPORE, HULL, HULL2, JET, NCOL
+  PINK, APPLE, LEAF, LEAF2, GREY, CLAY, SPORE, HULL, HULL2, JET, METAL, METAL2, BLOOD, BLOOD2, SHOT, FLAME, NCOL
 };
 uint8_t PAL[NCOL][3] = {  // day look; tint() rewrites everything up to TREE
     {44, 96, 170},  {74, 134, 200}, {128, 176, 222}, {196, 212, 222},  // sky, top to horizon (haze at the horizon)
@@ -36,6 +37,8 @@ uint8_t PAL[NCOL][3] = {  // day look; tint() rewrites everything up to TREE
     {255, 140, 160}, {214, 48, 56}, {96, 186, 80}, {54, 128, 62}, {178, 176, 186}, {196, 98, 60},  // props
     {200, 255, 230},                                                 // glowing spore (night visitor)
     {244, 240, 226}, {190, 184, 172}, {70, 50, 90},                  // glider hull, its shade, jet intake
+    {176, 168, 124}, {100, 96, 72}, {196, 40, 36}, {108, 22, 26},       // game: Tolmekian olive, its shade; Pejite red, shade
+    {255, 236, 120}, {255, 140, 40},                                 // her shots, fire
 };
 
 // ---- Time of day (K6): the palette indices stay, their RGB follows the clock (pet::look) ----
@@ -120,7 +123,7 @@ const char *const TRUN[2][TRUN_H] = {
 };
 
 // Props, in the cat's sprite letters (art()): K outline, O apple, W cream, P pink, Y grey, C clay, g/G leaf, F belt brown,
-// b/B tunic blue, # = the caller's color. The runner (game.h) draws its obstacles with the same letters.
+// b/B tunic blue, # = the caller's color.
 const char *const ZZ[] = {"####", "..#.", ".#..", "####"};
 const char *const LOVE[] = {".P.P.", "PPPPP", ".PPP.", "..P.."};
 const char *const NOTE[2][5] = {{"..##", "..#.", "..#.", "###.", "##.."},
@@ -793,17 +796,6 @@ void drawVisitor() {
   }
 }
 
-// For the runner (game.h): the girl is the hero, Teto rides on her shoulder. She is taller than the cat: the bird flies
-// higher, the view sits lower.
-auto &hero = girl;
-void drawHero() {
-  teto.st = SHOULDER;
-  drawGirl(), attach(), drawTeto();
-}
-const int BIRD_TOP = GROUND - 40, GAME_CAM = 15, SCROLL_Y = GROUND;
-const float HEAD_X0 = -9, HEAD_X1 = 7;
-#include "game.h"
-
 // ---- Travel: she flies the Mehve to the right, lying on it; Teto clings to her back. The valley scrolls under her in
 // layers, each slower the farther it is: far ridges, hills with windmills, the forest just below; clouds near and far,
 // wind streaks rushing past. She drifts up and down on the wind. ----
@@ -879,6 +871,286 @@ void drawRove() {
   drawGlider();
   float cx = wrap(90 - dist * 1.4f, 260) - 30;  // now and then a big cloud rushes by right in front
   cloud(cx, 64, 1.6f);
+}
+
+// ---- Game: the Mehve against the air fleets, seen from above, the valley scrolling under her (instead of the runner).
+// She flies along the bottom: the sideways tilt sets where (gameTilt, level = middle). The button fires her gun, held =
+// auto-fire. Every shot heats it; full heat jams it until it has cooled all the way (the bar under her). Planes come
+// down from the top: Pejite gunships (red one-seaters, fins at the wing tips: quick, weaving, 1 hit), Tolmekian armored
+// corvettes (four wings: aimed shots, 3 hits, from 5 points), Bumblecrow transports (huge, four engines: a 3-way spread,
+// 8 hits, from 15 points). A bullet or a crash and it's over; a downed plane scores its hits. Planes that get past
+// don't count. The firmware feeds the button level and the tilt, restarts after a game over and reads `game.ended`. ----
+using pet::Game;
+Game &game = pet::runner;
+
+enum { GUNSHIP, CORVETTE, CROW };
+const int PY = 67;                                        // her row (the glider's middle)
+const float REACH_X = 17, TILT_FULL = 0.5f, GLIDE_V = 80;  // px either side of the middle; tilt (g) for the edge; px/s
+const float SHOT_V = 120, FIRE_DT = 0.14f;                // her shots px/s; auto-fire interval
+const float HEAT_SHOT = 0.11f, HEAT_COOL = 0.3f, JAM_COOL = 0.7f;  // heat a shot; cooling /s, and while jammed (~1.4 s)
+const float BULLET_V = 38, SCROLL_V = 22;                 // enemy shots, ground px/s
+const int SHOT_TOP = 25;  // the score bubble ends above this row: her shots fade there, planes start firing below it
+
+// Nose down (they fly at her). K outline, M / m olive and its shade, R / r red and its shade, W glass.
+const char *const GUNSHIP_ART[] = {
+    "K.......K", "rK.KKK.Kr", "RRKRRRKRR", "KRRRRRRRK", ".KKRWRKK.", "...KRK...", "....K....",
+};
+const char *const CORVETTE_ART[] = {
+    "......K......", ".....KmK.....", "..KKKKMKKKK..", "..KmmMMMmmK..", "...KKKMKKK...", ".....KMK.....",
+    "KKKKKKMKKKKKK", "KMMMMMMMMMMMK", "KmmmmMWMmmmmK", ".KKKKKWKKKKK.", ".....KWK.....", "......K......",
+};
+const char *const CROW_ART[] = {
+    "..........KKKKK..........", ".........KmKMKmK.........", ".........KmKMKmK.........",
+    "...KK....KKMMMKK....KK...", "....KK...KmMMMmK...KK....", ".....KK..KmMMMmK..KK.....",
+    "..KKKKKKKKmMMMmKKKKKKKK..", ".KMMMMMMMMMMMMMMMMMMMMMK.", "KMMMMMMMMMMMMMMMMMMMMMMMK",
+    "KmmmmmKmKmmMMMmmKmKmmmmmK", ".KmmmmKmKmmMMMmmKmKmmmmK.", "..KKKKKmKKmMWMmKKmKKKKK..",
+    "......KKK.KMWMK.KKK......", "..........KMMMK..........", "...........KKK...........",
+};
+const struct {
+  const char *const *art;
+  int h, hp;
+  float v;  // px/s down
+} PLANE[] = {{GUNSHIP_ART, 7, 1, 30}, {CORVETTE_ART, 12, 3, 16}, {CROW_ART, 15, 8, 8}};
+
+struct Plane {
+  float x, y, x0, t, hit, fire;  // x0: weave middle; hit: flash left; fire: s to its next shot
+  int8_t hp;
+  uint8_t kind;
+  bool on;
+} planes[6];
+struct Dot {
+  float x, y, vx, vy;
+  bool on;
+} shots[8], bullets[16];
+struct Puff {
+  float x, y, vx, vy, life;
+  uint8_t c;
+} puffs[32];
+float mx = 40, mv = 0, tiltTo = 40, heat = 0, fireT = 0, flashT = 0, spawnT = 0, scrollY = 0;
+bool jam = false;
+
+int planeW(const Plane &p) { return strlen(PLANE[p.kind].art[0]); }
+void burst(float x, float y, int n, float v, float life, uint8_t c0, uint8_t c1) {
+  for (int i = 0; i < n; i++)
+    for (auto &p : puffs)
+      if (p.life <= 0) {
+        float a = 6.2832f * rnd(), s = v * (0.3f + 0.7f * rnd());
+        p = {x, y, s * cosf(a), s * sinf(a), life * (0.6f + 0.4f * rnd()), rnd() < 0.5f ? c0 : c1};
+        break;
+      }
+}
+void fireAt(float x, float y, float vx, float vy) {
+  for (auto &b : bullets)
+    if (!b.on) {
+      b = {x, y, vx, vy, true};
+      return;
+    }
+}
+
+void spawn() {
+  float r = rnd();
+  bool crowUp = false;
+  for (auto &p : planes) crowUp |= p.on && p.kind == CROW;
+  uint8_t k = game.score >= 15 && r < 0.15f && !crowUp ? CROW : game.score >= 5 && r < 0.5f ? CORVETTE : GUNSHIP;
+  for (auto &p : planes)
+    if (!p.on) {
+      float x = k == CROW ? 34 + 12 * rnd() : 24 + 32 * rnd();
+      p = {x, -(float)PLANE[k].h, x, 0, 0, 1 + rnd(), (int8_t)PLANE[k].hp, k, true};
+      return;
+    }
+}
+
+void finish() {  // stats and the event for the firmware
+  game.newBest = pet::gameOver(game.score);
+  game.ended = true;
+}
+
+void gameStart() {
+  pose(IDLE, 0);  // ends a flight
+  tgo(SHOULDER, 0);
+  game = Game();
+  game.on = true;
+  mx = tiltTo = 40, mv = heat = fireT = flashT = 0, jam = false, spawnT = 1;
+  for (auto &p : planes) p.on = false;
+  for (auto &s : shots) s.on = false;
+  for (auto &b : bullets) b.on = false;
+  for (auto &p : puffs) p.life = 0;
+}
+
+void gameStop() {  // left with a long hold, or by find
+  if (game.on && !game.dead && game.score > 0) finish();
+  game.on = false;
+  pose(IDLE, 1);
+}
+
+void gameInput(bool held) {  // button level, every frame: a press fires at once, held = auto-fire
+  if (held && !game.held) fireT = 0;
+  game.held = held;
+}
+
+void gameTilt(float g) { tiltTo = 40 + clampf(g / TILT_FULL, -1, 1) * REACH_X; }  // sideways gravity in g, + = right
+
+void down() {  // she's hit: the end
+  game.dead = true, game.t = 0, game.held = false;
+  burst(mx, PY, 16, 30, 0.8f, FLAME, SHOT);
+  finish();
+}
+
+void gameStep(float dt) {
+  T += dt, game.t += dt, scrollY += SCROLL_V * dt;
+  float lvl = 1 + 0.6f * fminf(game.score, 60) / 60;  // everything a bit quicker as the score climbs
+  for (auto &p : puffs)
+    if (p.life > 0) p.life -= dt, p.x += p.vx * dt, p.y += (p.vy + SCROLL_V) * dt, p.vx *= 1 - 2 * dt, p.vy *= 1 - 2 * dt;
+  for (auto &s : shots)
+    if (s.on && (s.y -= SHOT_V * dt) < SHOT_TOP) s.on = false;
+  for (auto &b : bullets)
+    if (b.on) {
+      b.x += b.vx * dt, b.y += b.vy * dt;
+      if (b.y > N + 2 || b.x < -2 || b.x > N + 2) b.on = false;
+      else if (!game.dead && fabsf(b.x - mx) < 2.5f && fabsf(b.y - (PY - 1)) < 3) b.on = false, down();
+    }
+  for (auto &p : planes) {
+    if (!p.on) continue;
+    p.t += dt, p.hit -= dt, p.y += PLANE[p.kind].v * lvl * dt;
+    int w = planeW(p), h = PLANE[p.kind].h;
+    if (p.kind == GUNSHIP) p.x = p.x0 + 9 * sinf(p.t * 2.5f);
+    if (p.kind == CORVETTE) p.x += clampf(mx - p.x, -6, 6) * dt;  // edges toward her
+    if (p.y > N + 2) {
+      p.on = false;
+      continue;
+    }
+    if (!game.dead && p.y > SHOT_TOP && p.y < PY - 16 && (p.fire -= dt * lvl) <= 0) {
+      float ny = p.y + h;
+      if (p.kind == CORVETTE) {  // aimed
+        float dx = mx - p.x, dy = PY - ny, l = sqrtf(dx * dx + dy * dy);
+        fireAt(p.x, ny, BULLET_V * dx / l, BULLET_V * dy / l), p.fire = 2.2f;
+      } else if (p.kind == CROW) {  // a spread from the nose
+        for (int i = -1; i <= 1; i++) fireAt(p.x, ny, BULLET_V * sinf(0.4f * i), BULLET_V * cosf(0.4f * i));
+        p.fire = 2.6f;
+      } else p.fire = 1e9f;  // the gunships only ram
+    }
+    for (auto &s : shots)
+      if (s.on && fabsf(s.x - p.x) < w / 2.f && s.y > p.y && s.y < p.y + h) {
+        s.on = false, p.hit = 0.08f;
+        burst(s.x, s.y, 2, 20, 0.2f, SHOT, CREAM);
+        if (--p.hp <= 0) {
+          p.on = false, game.score += PLANE[p.kind].hp;
+          burst(p.x, p.y + h / 2.f, 6 + 2 * h, 10 + 2 * h, 0.7f, FLAME, p.kind == GUNSHIP ? BLOOD : GREY);
+          break;
+        }
+      }
+    if (p.on && !game.dead && fabsf(p.x - mx) < w / 2.f + 1.5f && PY - 1 > p.y - 2 && PY - 1 < p.y + h + 2) {
+      p.on = false, burst(p.x, p.y + h / 2.f, 12, 25, 0.7f, FLAME, GREY);
+      down();
+    }
+  }
+  if (game.dead) {  // she goes down trailing smoke; the firmware restarts on a press, gives up after 10 s
+    if (rnd() < 0.5f) burst(mx, PY, 1, 6, 0.6f, GREY, CREAM);
+    if (game.t > 10) game.on = false, pose(IDLE, 1);
+    return;
+  }
+  mv = clampf((tiltTo - mx) * 8, -GLIDE_V, GLIDE_V);
+  mx += mv * dt;
+  flashT -= dt, fireT -= dt;
+  if ((heat -= (jam ? JAM_COOL : HEAT_COOL) * dt) <= 0) heat = 0, jam = false;
+  if (game.held && !jam && fireT <= 0) {
+    for (auto &s : shots)
+      if (!s.on) {
+        s = {mx, PY - 7.f, 0, 0, true};
+        break;
+      }
+    fireT = FIRE_DT, flashT = 0.05f;
+    if ((heat += HEAT_SHOT) >= 1) heat = 1, jam = true;
+  }
+  if ((spawnT -= dt * lvl) <= 0) spawn(), spawnT = 1.4f + 1.2f * rnd() - fminf(game.score, 40) * 0.02f;
+}
+
+// The valley from above: grass, a river mirroring the sky, clumps of forest; all of it rolls down the screen.
+void drawGround() {
+  for (int y = 0; y < N; y++) {
+    int r = int(scrollY) + N - 1 - y;  // world row
+    float rc = 40 + 18 * sinf(r * 0.021f) + 7 * sinf(r * 0.057f + 1), hw = 3.5f + 1.5f * sinf(r * 0.04f);
+    for (int x = 0; x < N; x++) {
+      float d = fabsf(x + 0.5f - rc);
+      uint8_t c = h01(r / 4 * 97 + x / 4) < 0.15f ? GRASS2 : GRASS;  // fields, 4 px patches
+      if (d < hw) c = (r * 7 + x * 3) % 23 == 0 ? SKY3 : SKY2;
+      else if (d < hw + 1) c = GRASSL;
+      fb[y * N + x] = c;
+    }
+  }
+  for (int b = int(scrollY) / 12 - 2, e = (int(scrollY) + N) / 12 + 2; b < e; b++) {  // a clump every 12 rows, off the river
+    float wr = b * 12 + 12 * h01(b * 5 + 2), cx = 80 * h01(b * 3), rad = 3 + 4 * h01(b * 3 + 1);
+    float rc = 40 + 18 * sinf(wr * 0.021f) + 7 * sinf(wr * 0.057f + 1);
+    if (fabsf(cx - rc) < rad + 6) cx += cx < rc ? -12 : 12;
+    float y = scrollY + N - 1 - wr;
+    for (int k = 0; k < 3; k++) disc(cx + (k - 1) * rad * 0.7f, y + (k == 1 ? -rad * 0.4f : 0), rad * (k == 1 ? 1 : 0.75f), TREE);
+    disc(cx - rad * 0.3f, y - rad * 0.6f, rad * 0.35f, GRASS2);
+  }
+}
+
+void drawPlane(const Plane &p) {
+  const char *const *a = PLANE[p.kind].art;
+  int w = planeW(p), x0 = lroundf(p.x - w / 2.f), y0 = lroundf(p.y);
+  for (int r = 0; r < PLANE[p.kind].h; r++)  // shadow on the ground first
+    for (int c = 0; c < w; c++)
+      if (a[r][c] != '.') px(x0 + c + 4, y0 + r + 6, SHADOW);
+  for (int r = 0; r < PLANE[p.kind].h; r++)
+    for (int c = 0; c < w; c++) {
+      char ch = a[r][c];
+      if (ch == '.') continue;
+      uint8_t col = ch == 'M' ? METAL : ch == 'm' ? METAL2 : ch == 'R' ? BLOOD : ch == 'r' ? BLOOD2 : ch == 'W' ? CREAM : INK;
+      px(x0 + c, y0 + r, p.hit > 0 && ch != 'K' ? uint8_t(CREAM) : col);
+    }
+}
+
+void drawMehve() {  // nose up, banking into the turn; she lies on top, Teto on her back
+  float x = mx, y = PY, bank = clampf(mv / GLIDE_V, -1, 1), span = 9 - 2 * fabsf(bank);
+  if (game.dead) span = 9 * cosf(game.t * 9), y += fminf(game.t, 2) * 3;  // spinning down
+  for (int s = -1; s <= 1; s += 2) {
+    float tx = x + s * span, ty = y + 2.5f + s * 1.5f * bank;
+    capsule(x, y - 1, tx, ty, 2.0f, INK);
+  }
+  capsule(x, y - 6, x, y + 5, 1.8f, INK);
+  for (int s = -1; s <= 1; s += 2) {
+    float tx = x + s * span, ty = y + 2.5f + s * 1.5f * bank;
+    capsule(x, y - 1, tx, ty, 1.1f, HULL), capsule(x, y + 0.2f, tx, ty + 0.6f, 0.5f, HULL2);
+  }
+  capsule(x, y - 5.5f, x, y + 4.5f, 1.0f, HULL), px(x, y - 6, JET);
+  capsule(x, y + 1, x, y + 4, 0.7f, PANTS);   // legs back
+  capsule(x, y - 2, x, y + 1, 1.1f, TUNIC);   // body
+  disc(x, y - 3.5f, 1.3f, HAIR), px(x, y - 4, HAIRL);
+  px(x + 1, y, FUR), px(x + 1, y + 1, FUR2);  // Teto
+  if (flashT > 0) px(x, y - 8, SHOT), px(x - 1, y - 7, SHOT), px(x + 1, y - 7, SHOT);
+  if (jam && rnd() < 0.3f) burst(x, y - 7, 1, 8, 0.4f, CREAM, GREY);  // the gun steams while it cools
+}
+
+void gameDraw() {
+  drawGround();
+  for (auto &p : planes)
+    if (p.on) drawPlane(p);
+  for (auto &b : bullets)
+    if (b.on) disc(b.x, b.y, 1.1f, BLOOD2), px(b.x, b.y, FLAME);
+  for (auto &s : shots)
+    if (s.on) px(s.x, s.y, SHOT), px(s.x, s.y + 1, SHOT), px(s.x, s.y + 2, FLAME);
+  drawMehve();
+  for (auto &p : puffs)
+    if (p.life > 0) px(p.x, p.y, p.c);
+  const int L = 31, W = 18, Y = 75;  // the heat bar: green, amber, red; blinking while jammed
+  for (int x = L - 1; x <= L + W; x++) px(x, Y - 1, INK), px(x, Y + 2, INK);
+  px(L - 1, Y, INK), px(L - 1, Y + 1, INK), px(L + W, Y, INK), px(L + W, Y + 1, INK);
+  uint8_t c = jam ? (fmodf(T, 0.25f) < 0.12f ? EARRING : CREAM) : heat < 0.6f ? LEAF : heat < 0.85f ? FUR : EARRING;
+  for (int x = 0; x < W; x++) {
+    uint8_t f = x < heat * W ? c : uint8_t(METAL2);
+    px(L + x, Y, f), px(L + x, Y + 1, f);
+  }
+}
+
+// Bubble text: score and high score while running, the result after a game over.
+void gameLabel(char *out, int cap) {
+  int best = pet::s.best > game.score ? pet::s.best : game.score;
+  if (!game.dead) snprintf(out, cap, "%d HI %d", game.score, best);
+  else if (game.newBest) snprintf(out, cap, "NEW BEST %d", game.score);
+  else snprintf(out, cap, "%d BEST %d", game.score, best);
 }
 
 // ---- Events from the firmware ----

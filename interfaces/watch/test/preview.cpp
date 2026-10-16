@@ -143,6 +143,26 @@ void autopilot(float t, float until) {
       if (ahead(l) > ahead(want)) want = l;
   gameTilt(want * 0.6f);
 }
+#elif defined(NAUSICAA)
+// Game autopilot: flies under the lowest plane and fires, lets the gun cool before it jams, sidesteps bullets close
+// above; after `until` s it stops firing and flies into the nearest bullet or plane (a crash).
+void autopilot(float t, float until) {
+  float to = 40, best = -1e9f;
+  for (const Plane &p : planes)
+    if (p.on && p.y < PY - 12 && p.y > best && (t >= until || p.y + 8 > SHOT_TOP)) best = p.y, to = p.x;
+  static bool cooling = false;
+  if (heat > 0.85f) cooling = true;
+  if (heat < 0.3f) cooling = false;
+  bool fire = !cooling && best > -1e9f;
+  for (const Dot &b : bullets)
+    if (b.on && b.y > PY - 25 && b.y < PY + 2 && fabsf(b.x - mx) < 5) {
+      if (t >= until) to = b.x;
+      else to = mx + (b.x < mx ? 10 : -10);
+    }
+  if (t >= until) fire = false;
+  gameTilt((to - 40) / REACH_X * TILT_FULL);
+  gameInput(fire);
+}
 #else
 // Runner autopilot: jumps pots, holds over fences, stays down under birds; stops trying after `until` s.
 float pressT = -1;
@@ -150,8 +170,8 @@ void autopilot(float t, float until) {
   bool held = false;
   for (const Ob &o : game.ob) {
     float d = o.x - hero.x;
-    if (o.passed || d < 0 || d > 16 || o.kind == BIRD) continue;
-    if (pressT < 0 && t < until && d < (o.kind == FENCE ? 12 : 9)) pressT = t;
+    if (o.passed || d < 0 || o.kind == BIRD) continue;
+    if (pressT < 0 && t < until && d - 4 < game.speed * (o.kind == FENCE ? 0.35f : 0.25f)) pressT = t;  // mid-window
     held = pressT >= 0 && t - pressT < (o.kind == FENCE ? 0.4f : 0.1f);
   }
   if (hero.y >= GROUND && pressT >= 0 && t - pressT > 0.2f) pressT = -1;
@@ -214,6 +234,12 @@ int main(int argc, char **argv) {
       {"tail_chase", 13 * 60, 3, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(SPIN, 2.2f); }},
 #endif
       {"dance", 13 * 60, 5, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(DANCE, 4.5f); }},
+#ifdef NAUSICAA
+      {"game_night", 21 * 60 + 30, 8, [] { pet::s.best = 40; }, [](float a, float b) {
+         if (at(a, b, 0.3f)) gameStart(), game.score = 20;  // the late planes: corvettes and a Bumblecrow
+         if (game.on) autopilot(b, 99);
+       }},
+#endif
       {"game", 17 * 60, 14, none, [](float a, float b) {
          if (at(a, b, 0.3f)) gameStart();
          if (game.on) autopilot(b, 11);

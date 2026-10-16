@@ -1,20 +1,30 @@
-// Runner mini game (K7), Chrome dino style. Included from a pet scene (cat.h, pavi.h) inside its namespace, after it defines:
+// Runner mini game (K7), Chrome dino style. Included from the cat scene (cat.h) inside its namespace, after it defines:
 //   hero (the runner: x, y, vx, vy, dir, happy, phase), drawHero(), drawSky(), pose(), go() with RUN / JUMP / KO / IDLE,
 //   vis.on, art() with the cat's sprite letters, bg / fb, rnd(), T, GROUND,
 //   BIRD_TOP (bird rows: just above the running hero's head), HEAD_X0 / HEAD_X1 (head span from hero.x, for the bird),
 //   GAME_CAM (the game is drawn this many rows lower: a high jump stays below the score bubble), SCROLL_Y (first ground row).
-// The hero runs at a fixed x, the world scrolls left. Press = jump; keep holding = floats higher (tall fences).
+// The hero runs at a fixed x, the world scrolls left. Press = jump; keep holding = higher (tall fences), like Chrome's dino.
 // The firmware feeds the button level (gameInput), restarts after a game over and reads `game.ended`.
 
 enum { POT, FENCE, BIRD };
-const float GJ = 200, JUMP_V = 65;              // gravity px/s², take-off speed px/s
-const float HOLD_FROM = 0.10f, HOLD_TO = 0.35f;  // while held in this window after take-off: no gravity (higher jump)
+// Chrome dino scaled: its T-rex is 47 px tall, here DINO px. Its jump (60 fps frames): take-off 10 px/frame, gravity
+// 0.6 px/frame², no higher than 63 px; letting go after 30 px drops the speed to 5 px/frame (apex 51 px vs 84 px held).
+// Cacti: small 17x35, large 25x50 (pot, fence here). Chrome's world is 13 T-rexes wide, this one 6: time runs SLOW times
+// slower so a jump still spans the same number of obstacle widths at this game's speed.
+const float DINO = 14, SLOW = 2.0f, K = DINO / 47;
+const float GJ = 0.6f * 3600 * K / (SLOW * SLOW);                 // gravity px/s²
+const float JUMP_V = 10 * 60 * K / SLOW, DROP_V = 5 * 60 * K / SLOW;  // take-off / cut-off speed px/s
+const float MIN_H = 30 * K, MAX_H = 63 * K;                          // let go from MIN_H up: cut; at MAX_H: cut anyway
 const float SPEED0 = 40, SPEED_UP = 5, SPEED_MAX = 90;  // px/s; +SPEED_UP every 10 points
-const float OB_W[] = {4, 5, 7}, OB_H[] = {6, 15, 0};  // hitbox width; height of the ground obstacles
+const int POT_H = 10, FENCE_H = 15;                                  // 35 K, 50 K: the cacti
+const float OB_W[] = {5, 7, 7}, OB_H[] = {POT_H, FENCE_H, 0};  // hitbox width (17 K, 25 K); height of the ground obstacles
 
-const char *const POT_ART[] = {".g..g.", "..gG..", "KKKKKK", "KCCCCK", ".KCCK.", ".KKKK."};
-const char *const FENCE_ART[] = {".K.K.K.", "KWKWKWK", "KWKWKWK", "KKKKKKK", "KWWWWWK", "KKKKKKK", "KWKWKWK", "KWKWKWK",
-                                 "KWKWKWK", "KKKKKKK", "KWWWWWK", "KKKKKKK", "KWKWKWK", "KWKWKWK", "KWKWKWK"};
+// art: hitbox + 1 px each side, OB_H rows tall
+const char *const POT_ART[POT_H] = {"..g.g..", ".gGgGg.", "..gGg..", "...G...", "KKKKKKK",
+                                    "KCCCCCK", "KCCCCCK", ".KCCCK.", ".KCCCK.", ".KKKKK."};
+const char *const FENCE_ART[FENCE_H] = {".K..K..K.", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK", "KKKKKKKKK",
+                                        "KWWWWWWWK", "KKKKKKKKK", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK",
+                                        "KWKKWKKWK", "KKKKKKKKK", "KWWWWWWWK", "KKKKKKKKK", "KWKKWKKWK"};
 const char *const BIRD_ART[2][5] = {{"...KK..", "..KYYK.", ".KYYYYK", "CKKYYYK", ".KKKKK."},   // wings up
                                     {".......", ".KKKKK.", "CKKYYYK", ".KYYYYK", "...KYK."}};  // wings down
 
@@ -56,7 +66,7 @@ void gameInput(bool held) {  // button level, every frame
   if (press && !game.dead && game.air < 0) game.air = 0, hero.vy = -JUMP_V, go(JUMP, 0);
 }
 
-void gameTilt(float) {}  // the runner jumps with the button; tilt steers only Pavi's game (pavi.h)
+void gameTilt(float) {}  // the runner jumps with the button; tilt steers Pavi's and Nausicaa's games
 
 bool hits(const Ob &o) {
   if (o.kind == BIRD) return o.x < hero.x + HEAD_X1 && o.x + OB_W[BIRD] > hero.x + HEAD_X0 && GROUND - hero.y > 1;  // any jump
@@ -79,8 +89,9 @@ void gameStep(float dt) {
   hero.phase += 15 * dt * game.speed / SPEED0;
   if (game.air >= 0) {
     game.air += dt;
-    bool hold = game.held && game.air > HOLD_FROM && game.air < HOLD_TO;
-    hero.vy += (hold ? 0 : GJ) * dt, hero.y += hero.vy * dt, hero.vx = game.speed;  // vx only tilts the jump pose
+    float h = GROUND - hero.y;
+    if ((!game.held || h > MAX_H) && h > MIN_H && hero.vy < -DROP_V) hero.vy = -DROP_V;  // let go / top: the rise ends
+    hero.vy += GJ * dt, hero.y += hero.vy * dt, hero.vx = game.speed;  // vx only tilts the jump pose
     if (hero.y >= GROUND) hero.y = GROUND, hero.vy = 0, game.air = -1, go(RUN, 0);
   }
   float far = 0;
@@ -106,8 +117,8 @@ void gameDraw() {
     for (int x = 0; x < N; x++) fb[y * N + x] = bg[y * N + (x + off) % N];
   for (const Ob &o : game.ob) {
     int x = lroundf(o.x);
-    if (o.kind == POT) art(POT_ART, 6, x - 1, GROUND - 6);
-    else if (o.kind == FENCE) art(FENCE_ART, 15, x - 1, GROUND - 15);
+    if (o.kind == POT) art(POT_ART, POT_H, x - 1, GROUND - POT_H);
+    else if (o.kind == FENCE) art(FENCE_ART, FENCE_H, x - 1, GROUND - FENCE_H);
     else art(BIRD_ART[sinf(T * 14) > 0], 5, x, BIRD_TOP);
   }
   drawHero();
