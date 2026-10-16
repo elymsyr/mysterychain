@@ -88,6 +88,7 @@ struct Ob {
 };
 struct Game {
   bool on, dead, ended, newBest, held, fixedSpeed;  // ended: game over event for the firmware (it clears it)
+  int8_t labelY = 11;                                // bubble row while the game runs
   int score;
   float t, speed, dist, air;  // t: since start or game over; air: since take-off, < 0 on the ground
   Ob ob[3];

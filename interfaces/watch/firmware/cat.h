@@ -602,8 +602,8 @@ void drawVisitor() {
 // For the runner (game.h): the cat is the hero.
 auto &hero = cat;
 void drawHero() { drawCat(); }
-const int BIRD_TOP = GROUND - 29, GAME_CAM = 11, SCROLL_Y = GROUND - 1;
-const float HEAD_X0 = 1, HEAD_X1 = 12;
+const int BIRD_TOP = GROUND - 36, GAME_UP = 6, LABEL_Y = GROUND - GAME_UP + 5, SCROLL_Y = GROUND - 1;
+const float HEAD_X0 = 1, HEAD_X1 = 12, HEAD_H = 16;
 #include "game.h"  // the runner game uses the drawing above
 
 // ---- Travel: the cat runs on the spot, the world scrolls left in layers (far mountains, hills with trees, the ground,

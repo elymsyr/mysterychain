@@ -382,8 +382,8 @@ void receive(uint8_t *rx, int n) {
   }
 }
 
-void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now) {
-  const int L = 12, R = 68, Y = 11, H = 13;  // fits the top band of the round screen
+void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now, int Y = 11) {
+  const int L = 12, R = 68, H = 13;  // Y = 11 fits the top band of the round screen
   gfx.fillRoundRect(L, Y, R - L, H, 4, scene::INK);
   gfx.fillRoundRect(L + 1, Y + 1, R - L - 2, H - 2, 3, scene::CREAM);
   int w = strlen(s) * 6, inner = R - L - 6;
@@ -427,12 +427,17 @@ bool musicScreen(uint32_t now) {
 
 void drawBubble(uint32_t now) {
   if (musicScreen(now)) return marquee(msg, msgT0, now);
-  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now);
+#ifdef SCENE_PET
+  int y = scene::game.on ? scene::game.labelY : 11;
+#else
+  int y = 11;
+#endif
+  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now, y);
 #ifdef SCENE_PET
   if (scene::game.on) {  // a message covers the score for its time, the game goes on
     char g[24];
     scene::gameLabel(g, sizeof g);
-    bubble(g, scene::INK, 0, now);  // scroll clock: plain millis, so a score change doesn't restart the scroll
+    bubble(g, scene::INK, 0, now, y);  // scroll clock: plain millis, so a score change doesn't restart the scroll
   }
 #endif
 }

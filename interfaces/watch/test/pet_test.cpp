@@ -58,12 +58,13 @@ static bool clears(int kind, float speed, float hold) {
     game.speed = speed, game.fixedSpeed = true;
     game.ob[0] = {hero.x + 70, (uint8_t)kind, false};
     game.ob[1].x = game.ob[2].x = 1e9f;
-    float t = 0, press = -1;
-    while (!game.ob[0].passed && !game.dead) {  // passed = fully behind the cat
+    float t = 0, press = -1, passed = -1;
+    while (!game.dead && (passed < 0 || t - passed < 0.4f)) {  // a while past the pot: its bird is behind it
       if (press < 0 && game.ob[0].x - hero.x <= lead) press = t;
       gameInput(press >= 0 && t - press < hold);
       gameStep(1 / 60.f);
       t += 1 / 60.f;
+      if (passed < 0 && game.score) passed = t;
     }
     bool ok = !game.dead;
     game.on = false;
@@ -72,17 +73,29 @@ static bool clears(int kind, float speed, float hold) {
   return false;
 }
 
-// Bird ahead of the head: standing passes under it, a jump into it ends the game.
-static bool birdHits(float speed, bool jump) {
+// A pot, then a second one right after it (tightX): holds `hold1`, then taps. True = both cleared.
+static bool clearsTight(float speed, float hold1) {
   using namespace run;
-  gameStart();
-  game.speed = speed, game.fixedSpeed = true;
-  game.ob[0] = {hero.x + 14, BIRD, false};
-  game.ob[1].x = game.ob[2].x = 1e9f;
-  for (int i = 0; i < 120 && !game.dead; i++) gameInput(jump && i < 6), gameStep(1 / 60.f);
-  bool d = game.dead;
-  game.on = false;
-  return d;
+  for (float lead1 = -5; lead1 < 60; lead1 += 1)
+    for (float lead2 = -5; lead2 < 60; lead2 += 1) {
+      gameStart();
+      game.speed = speed, game.fixedSpeed = true;
+      game.ob[0] = {hero.x + 70, POT, false};
+      game.ob[1] = {tightX(game.ob[0].x), POT, false};
+      game.ob[2].x = 1e9f;
+      float t = 0, p1 = -1, p2 = -1;
+      while (!game.ob[1].passed && !game.dead) {
+        if (p1 < 0 && game.ob[0].x - hero.x <= lead1) p1 = t;
+        if (p2 < 0 && game.score && game.ob[1].x - hero.x <= lead2) p2 = t;
+        gameInput((p1 >= 0 && t - p1 < hold1) || (p2 >= 0 && t - p2 < 0.1f));
+        gameStep(1 / 60.f);
+        t += 1 / 60.f;
+      }
+      bool ok = !game.dead;
+      game.on = false;
+      if (ok) return true;
+    }
+  return false;
 }
 #endif
 
@@ -142,8 +155,8 @@ int main() {
   assert(s.steps == 5 && s.stepsDay == 11);
 
   s = Saved();
-  assert(canPlay() && gameOver(30) && s.best == 30 && near(s.energy, 70) && near(s.happy, 90));
-  assert(!gameOver(12) && s.best == 30);
+  assert(canPlay() && gameOver(30) && best() == 30 && near(s.energy, 70) && near(s.happy, 90));
+  assert(!gameOver(12) && best() == 30);
   s.energy = 14;
   assert(!canPlay());
 
@@ -195,15 +208,18 @@ int main() {
   assert(fight(CORVETTE, 40, 0, false, 8));
   assert(!fight(CROW, 40, 0.3f, true, 10) && game.score == 8);
 #else
-  // Runner: a tap clears a pot, not a fence; a held jump clears a fence; any jump hits a bird.
+  // Runner: a tap clears a pot, not a fence; a held jump clears a fence; a pot under a bird needs a tap, a held
+  // jump hits the bird; a pot right after a pot: tap-tap works.
   s = Saved();
   using run::POT;
   using run::FENCE;
-  for (float v : {40.f, 65.f, 90.f}) {
+  using run::BIRD;
+  for (float v : {50.f, 70.f, 90.f}) {
     assert(clears(POT, v, 0.1f));
     assert(!clears(FENCE, v, 0.1f));
     assert(clears(FENCE, v, 0.4f));
-    assert(!birdHits(v, false) && birdHits(v, true));
+    assert(clears(BIRD, v, 0.1f) && !clears(BIRD, v, 0.5f) && !clears(BIRD, v, 0));
+    assert(clearsTight(v, 0.1f));
   }
 #endif
 #ifdef SCENE_PICK  // pets.h: switching the look rebinds buffer, palette and bubble colors, and ends a running game

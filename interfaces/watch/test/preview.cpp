@@ -36,8 +36,8 @@ void roundRect(int x0, int y0, int w, int h, int r, uint8_t c) {
       if (dx * dx + dy * dy <= r * r) px(x, y, c);
     }
 }
-void bubble(const char *s, uint8_t color, float t) {
-  const int L = 12, R = 68, Y = 11, H = 13;
+void bubble(const char *s, uint8_t color, float t, int Y = 11) {
+  const int L = 12, R = 68, H = 13;
   roundRect(L, Y, R - L, H, 4, INK);
   roundRect(L + 1, Y + 1, R - L - 2, H - 2, 3, CREAM);
   int w = strlen(s) * 6, inner = R - L - 6;
@@ -109,11 +109,11 @@ void run(const Clip &c, const char *dir) {
     music(on && msgMusic);
     step(FRAME_S);
     if (on && msgMusic && !game.on) marquee(msg, t - msgT0);
-    else if (on) bubble(msg, msgColor, t - msgT0);
+    else if (on) bubble(msg, msgColor, t - msgT0, game.on ? game.labelY : 11);
     else if (game.on) {
       char g[24];
       gameLabel(g, sizeof g);
-      bubble(g, INK, t);
+      bubble(g, INK, t, game.labelY);
     }
     uint8_t pal[256][3] = {};
     memcpy(pal, PAL, sizeof PAL);
@@ -164,13 +164,13 @@ void autopilot(float t, float until) {
   gameInput(fire);
 }
 #else
-// Runner autopilot: jumps pots, holds over fences, stays down under birds; stops trying after `until` s.
+// Runner autopilot: hops pots (also under birds), holds over fences; stops trying after `until` s.
 float pressT = -1;
 void autopilot(float t, float until) {
   bool held = false;
   for (const Ob &o : game.ob) {
     float d = o.x - hero.x;
-    if (o.passed || d < 0 || o.kind == BIRD) continue;
+    if (o.passed || d < 0) continue;
     if (pressT < 0 && t < until && d - 4 < game.speed * (o.kind == FENCE ? 0.35f : 0.25f)) pressT = t;  // mid-window
     held = pressT >= 0 && t - pressT < (o.kind == FENCE ? 0.4f : 0.1f);
   }
