@@ -1,7 +1,7 @@
 // Pavi (Seven Havens protagonist, purple-haired girl) and her fairy: draws into an 80x80 color-indexed buffer (fb),
 // scaled 3x on screen. No Arduino dependency: also compiles on a PC for frame-by-frame testing (interfaces/watch/test).
 // Pavi is a pet like the cat (pet.h): her mood picks what she does, the sky follows the clock (tint: clouds and sun by day,
-// aurora, moon and stars at night), and she has the runner game (game.h).
+// aurora, moon and stars at night), and her game is the travel road steered by tilting (gameTilt, below).
 // Travel (travel()): seen from behind, she bends her way down a road (earth: a rock slab, water: a wave on a river,
 // air: an air ball, fire: jets from her feet), dodging left and right; the layers shift by depth (parallax). The music
 // screen shows it; now and then she also sets off on her own.
@@ -108,7 +108,7 @@ const char *const TORSO[TORSO_H] = {
 };
 
 // Props, in the cat's sprite letters (art()): K outline, O apple, W cream, P pink, Y grey, C clay, g/G leaf, F belt brown,
-// b/B fairy blue, # = the caller's color. The runner (game.h) draws its obstacles with the same letters.
+// b/B fairy blue, # = the caller's color.
 const char *const ZZ[] = {"####", "..#.", ".#..", "####"};
 const char *const LOVE[] = {".P.P.", "PPPPP", ".PPP.", "..P.."};
 const char *const NOTE[2][5] = {{"..##", "..#.", "..#.", "###.", "##.."},
@@ -729,20 +729,18 @@ void drawVisitor() {
   }
 }
 
-// For the runner (game.h): the girl is the hero. She is taller than the cat: the bird flies higher, the view sits lower.
-auto &hero = girl;
-void drawHero() { drawGirl(); }
-const int BIRD_TOP = GROUND - 37, GAME_CAM = 12, SCROLL_Y = GROUND;
-const float HEAD_X0 = -9, HEAD_X1 = 7;
-#include "game.h"
+// Pavi's game is the trip below, steered by tilting (not game.h's runner); it keeps its score in the shared runner state.
+using pet::Game;
+Game &game = pet::runner;
 
 // ---- Travel: a road into the screen, seen from behind her. Row y below the horizon is depth z = FOC / (y - HZ) units
 // (the camera is 1 unit up); a point (wx, z) lands on x = 40 + (wx - camX) * FOC / z. The road changes every SEG units
 // (earth, water = a river, air, fire) and she bends with whatever she's on. Rocks, trees and ruined pillars stand in
-// the lanes; she side-steps them, the camera follows her halfway, so the city and the hills shift less than the road
-// (parallax). Trees along the verges just rush past. ----
-const int HZ = 36;                                           // horizon row
-const float FOC = 40, ZP = 1.4f, LANE = 0.8f, SPEED = 7, SEG = 35;  // focal px, her depth, lane width, units/s, element stretch
+// the lanes; she side-steps them (in the game: you steer), the camera follows her partway, so the city and the hills
+// shift less than the road (parallax). Trees along the verges just rush past. High horizon, long lens, her low on the
+// screen: her head ends below the horizon, so the road ahead of her shows from ~5 units out. ----
+const int HZ = 26;                                            // horizon row
+const float FOC = 50, ZP = 1.2f, LANE = 0.8f, SPEED = 7, SEG = 35;  // focal px, her depth, lane width, units/s, element stretch
 enum { EARTH, WATER, AIR, FIRE };
 enum { BOULDER, TREE, PILLAR };
 struct Thing {
@@ -791,12 +789,15 @@ void tripHop(float v) {
 }
 
 void roveStep(float dt) {
-  dist += SPEED * dt;
+  dist += (game.on ? game.speed : SPEED) * dt;
   float me = dist + ZP, farOb = 0, farSide = 0;
   for (auto &o : obs) farOb = fmaxf(farOb, o.w);
   for (auto &o : verge) farSide = fmaxf(farSide, o.w);
   for (auto &o : obs)
-    if (o.w < dist + 0.5f) obNew(o, farOb), farOb = o.w;
+    if (o.w < dist + 0.5f) {  // behind her: passed (a point in the game), a new one far ahead
+      if (game.on) game.score++;
+      obNew(o, farOb), farOb = o.w;
+    }
   for (auto &o : verge)
     if (o.w < dist + 0.5f) sideNew(o, farSide), farSide = o.w;
 
@@ -805,15 +806,15 @@ void roveStep(float dt) {
       if (fabsf(o.wx - l * LANE) < 0.1f && o.w > me - 0.3f && o.w < me + 6) return true;
     return false;
   };
-  if (blocked(lane)) {  // side-step to a free lane, the near one first
+  if (!game.on && blocked(lane)) {  // side-step to a free lane, the near one first (the game: gameTilt picks it)
     int a = lane == 0 ? (rnd() < 0.5f ? -1 : 1) : 0, b = lane == 0 ? -a : -lane;
     if (!blocked(a)) lane = a;
     else if (!blocked(b)) lane = b;
   }
   float to = lane * LANE - pX;  // glide sideways, easing in and out
-  pV += (clampf(to * 6, -2.6f, 2.6f) - pV) * fminf(1, 10 * dt);
+  pV += (clampf(to * 6, -3.2f, 3.2f) - pV) * fminf(1, 10 * dt);
   pX += pV * dt;
-  camX += (0.5f * pX - camX) * fminf(1, 3 * dt);
+  camX += (0.6f * pX - camX) * fminf(1, 3 * dt);  // 0.6: a side lane stays inside the round screen
   if (hopY < 0 || hopV < 0) {
     hopV += G * dt, hopY += hopV * dt;
     if (hopY >= 0) hopY = hopV = 0;
@@ -831,7 +832,7 @@ void roveStep(float dt) {
   }
   for (auto &b : bits)
     if (b.life > 0) b.life -= dt, b.x += b.vx * dt, b.y += b.vy * dt, b.vy += (b.c == WING ? 120 : 0) * dt;
-  if (!tunes && (tripLeft -= dt) <= 0) pose(IDLE, 1);
+  if (!game.on && !tunes && (tripLeft -= dt) <= 0) pose(IDLE, 1);
 }
 
 // Pavi from behind: hair, band and ponytail; the cloak over her back.
@@ -929,7 +930,7 @@ void drawRove() {
         if (elemAt(w) == WATER) c = fmodf(w * 1.3f + 0.25f * sinf(wx * 5 + T * 2), 1) < 0.2f ? RIVER2 : RIVER;
         else c = h01(int(w * 3) * 131 + int(floorf(wx * 5))) < 0.18f ? ROAD2 : ROAD;
       } else c = aw < 1.4f ? ROAD2 : stripe ? GRASS : GRASS2;
-      if (z > 9 && (z - 9) / 8 > bayer(x, y)) c = HAZE;
+      if (z > 14 && (z - 14) / 10 > bayer(x, y)) c = HAZE;
       fb[y * N + x] = c;
     }
   }
@@ -983,6 +984,70 @@ void drawRove() {
   for (; i < n; i++) drawThing(*all[i]);
   for (auto &b : bits)
     if (b.life > 0) px(b.x, b.y, b.c);
+}
+
+// ---- Game: the trip, steered. Tilt the keychain left / right for that lane, hold it level for the middle one.
+// Whatever stands in her lane comes at her: one hit and it's over. Score = obstacles passed; it speeds up as it goes.
+// The firmware feeds the sideways tilt (gameTilt), restarts after a game over and reads `game.ended`. ----
+const float GSPEED0 = 6, GSPEED_UP = 0.5f, GSPEED_MAX = 12;  // units/s; +GSPEED_UP every 5 points
+const float TILT_IN = 0.35f, TILT_OUT = 0.2f;  // g sideways: past IN = side lane (~20°), back under OUT = middle
+
+void finish() {  // stats and the event for the firmware
+  game.newBest = pet::gameOver(game.score);
+  game.ended = true;
+}
+
+void gameStart() {
+  game = Game();
+  game.on = true, game.speed = GSPEED0;
+  endTrip();  // a fresh road, even from the middle of a trip
+  travel(0);
+}
+
+void gameStop() {  // left with a long hold, or by find
+  if (game.on && !game.dead && game.score > 0) finish();
+  game.on = false;
+  pose(IDLE, 1);
+}
+
+void gameInput(bool) {}  // the button isn't used here: the tilt steers
+
+void gameTilt(float g) {  // sideways gravity in g, + = tilted right; hysteresis so a wobble doesn't flip lanes
+  if (game.on && !game.dead) lane = g > (lane == 1 ? TILT_OUT : TILT_IN) ? 1 : g < -(lane == -1 ? TILT_OUT : TILT_IN) ? -1 : 0;
+}
+
+void gameStep(float dt) {
+  T += dt, game.t += dt;
+  if (game.dead) {  // knocked to a stop: the dust settles; the firmware restarts on a press, gives up after 10 s
+    roveStep(dt);
+    if (game.t > 10) game.on = false, pose(IDLE, 1);
+    return;
+  }
+  if (!game.fixedSpeed) game.speed = fminf(GSPEED0 + GSPEED_UP * (game.score / 5), GSPEED_MAX);
+  float me0 = dist + ZP;
+  roveStep(dt);
+  for (auto &o : obs)  // swept over this frame's travel: at top speed a frame moves her farther than an obstacle is deep
+    if (o.w > me0 - 0.25f && o.w < dist + ZP + 0.25f && fabsf(o.wx - pX) < 0.45f) {
+      game.dead = true, game.t = 0, game.speed = 0, girl.happy = 0;
+      dist -= 2.5f;  // bounced back: what she hit stands in front of her instead of filling the screen
+      tripHop(70);
+      for (int i = 0; i < 14; i++) {
+        float a = i * 0.449f;
+        puff(tripX, tripTop + 26, 40 * cosf(a), 30 * sinf(a), 0.6f, i & 1 ? GREY : CREAM);
+      }
+      finish();
+      return;
+    }
+}
+
+void gameDraw() { drawRove(); }
+
+// Bubble text: score and high score while running, the result after a game over.
+void gameLabel(char *out, int cap) {
+  int best = pet::s.best > game.score ? pet::s.best : game.score;
+  if (!game.dead) snprintf(out, cap, "%d HI %d", game.score, best);
+  else if (game.newBest) snprintf(out, cap, "NEW BEST %d", game.score);
+  else snprintf(out, cap, "%d BEST %d", game.score, best);
 }
 
 // ---- Events from the firmware ----
@@ -1039,7 +1104,7 @@ void music(bool on) {
   if (on == tunes) return;
   tunes = on;
   if (on && girl.st != SLEEP && mood != pet::SLEEP) travel(0);
-  else if (!on && rove && tripLeft <= 0) pose(IDLE, 1);
+  else if (!on && rove && tripLeft <= 0 && !game.on) pose(IDLE, 1);
 }
 
 void init() {

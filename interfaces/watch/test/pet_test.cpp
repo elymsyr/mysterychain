@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>
+#include <utility>
 #if defined(PETS)
 #include "pets.h"
 #elif defined(PAVI)
@@ -21,6 +22,21 @@ namespace run = scene;
 
 static bool near(float a, float b) { return fabsf(a - b) < 0.01f; }
 
+#ifdef PAVI
+// Pavi's game: one boulder in the middle lane, the tilt `g` held all along. True = she ran into it.
+static bool tiltHits(float g, float speed, float dt) {
+  using namespace run;
+  gameStart();
+  game.speed = speed, game.fixedSpeed = true;
+  obs[0] = {dist + ZP + 6, 0, BOULDER};
+  obs[1].w = obs[2].w = 1e9f;
+  for (int i = 0; i < 1000 && !game.dead && !game.score; i++) gameTilt(g), gameStep(dt);
+  assert(game.dead || game.score == 1);
+  bool d = game.dead;
+  game.on = false;
+  return d;
+}
+#else
 // Runs one game obstacle at a fixed speed; the button is held for `hold` s at the best moment. True = cleared.
 static bool clears(int kind, float speed, float hold) {
   using namespace run;
@@ -55,6 +71,7 @@ static bool birdHits(float speed, bool jump) {
   game.on = false;
   return d;
 }
+#endif
 
 int main() {
   using namespace pet;
@@ -117,6 +134,20 @@ int main() {
   s.energy = 14;
   assert(!canPlay());
 
+#ifdef PAVI
+  // Pavi: level = middle lane = into the boulder, a tilt past TILT_IN = a side lane; 20 Hz frames at top speed don't
+  // jump over it. The lane holds until the tilt drops under TILT_OUT.
+  s = Saved();
+  for (float v : {6.f, 12.f})
+    for (float dt : {1 / 60.f, 0.05f}) {
+      assert(tiltHits(0, v, dt) && tiltHits(0.3f, v, dt));
+      assert(!tiltHits(0.5f, v, dt) && !tiltHits(-0.5f, v, dt));
+    }
+  run::gameStart();
+  for (auto [g, l] : {std::pair{0.3f, 0}, {0.4f, 1}, {0.25f, 1}, {0.1f, 0}, {-0.4f, -1}, {-0.25f, -1}, {0.5f, 1}})
+    run::gameTilt(g), assert(run::lane == l);
+  run::game.on = false;
+#else
   // Runner: a tap clears a pot, not a fence; a held jump clears a fence; any jump hits a bird.
   s = Saved();
   using run::POT;
@@ -127,6 +158,7 @@ int main() {
     assert(clears(FENCE, v, 0.4f));
     assert(!birdHits(v, false) && birdHits(v, true));
   }
+#endif
 #ifdef SCENE_PICK  // pets.h: switching the look rebinds buffer, palette and bubble colors, and ends a running game
   scene::pick(1);
   assert(scene::fb == pavi::fb && scene::PAL == pavi::PAL && scene::INK == pavi::INK && scene::NCOL == pavi::NCOL);

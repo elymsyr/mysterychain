@@ -37,6 +37,7 @@ void music(bool on) { cur == 2 ? nausicaa::music(on) : cur ? pavi::music(on) : k
 void gameStart() { cur == 2 ? nausicaa::gameStart() : cur ? pavi::gameStart() : kitty::gameStart(); }
 void gameInput(bool held) { cur == 2 ? nausicaa::gameInput(held) : cur ? pavi::gameInput(held) : kitty::gameInput(held); }
 void gameStop() { cur == 2 ? nausicaa::gameStop() : cur ? pavi::gameStop() : kitty::gameStop(); }
+void gameTilt(float g) { cur == 2 ? nausicaa::gameTilt(g) : cur ? pavi::gameTilt(g) : kitty::gameTilt(g); }
 void gameLabel(char *out, int cap) { kitty::gameLabel(out, cap); }  // reads only the shared runner state
 
 int find(const char *name) {  // index of a scene name, -1 = none

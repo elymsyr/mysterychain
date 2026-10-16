@@ -125,6 +125,25 @@ void run(const Clip &c, const char *dir) {
   printf("%s\n", c.name.c_str());
 }
 
+#ifdef PAVI
+// Game autopilot: tilts to a lane with nothing close ahead; after `until` s it steers into the nearest one (a crash).
+void autopilot(float t, float until) {
+  auto ahead = [](int l) {  // distance to the next obstacle in lane l
+    float d = 1e9f;
+    for (const Thing &o : obs)
+      if (fabsf(o.wx - l * LANE) < 0.1f && o.w > dist + ZP - 0.3f) d = fminf(d, o.w - dist - ZP);
+    return d;
+  };
+  static int want = 0;
+  if (t >= until) {
+    for (int l = -1; l <= 1; l++)
+      if (ahead(l) < ahead(want)) want = l;
+  } else if (ahead(want) < 5)
+    for (int l : {0, -1, 1})
+      if (ahead(l) > ahead(want)) want = l;
+  gameTilt(want * 0.6f);
+}
+#else
 // Runner autopilot: jumps pots, holds over fences, stays down under birds; stops trying after `until` s.
 float pressT = -1;
 void autopilot(float t, float until) {
@@ -138,6 +157,7 @@ void autopilot(float t, float until) {
   if (hero.y >= GROUND && pressT >= 0 && t - pressT > 0.2f) pressT = -1;
   gameInput(held);
 }
+#endif
 
 int main(int argc, char **argv) {
   const char *dir = argc > 1 ? argv[1] : ".";

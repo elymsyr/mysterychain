@@ -56,6 +56,8 @@ void gameInput(bool held) {  // button level, every frame
   if (press && !game.dead && game.air < 0) game.air = 0, hero.vy = -JUMP_V, go(JUMP, 0);
 }
 
+void gameTilt(float) {}  // the runner jumps with the button; tilt steers only Pavi's game (pavi.h)
+
 bool hits(const Ob &o) {
   if (o.kind == BIRD) return o.x < hero.x + HEAD_X1 && o.x + OB_W[BIRD] > hero.x + HEAD_X0 && GROUND - hero.y > 1;  // any jump
   return o.x < hero.x + 4 && o.x + OB_W[o.kind] > hero.x - 2 && GROUND - hero.y < OB_H[o.kind];
