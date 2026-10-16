@@ -9,6 +9,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+notes.md
 
 # C extensions
 *.so
