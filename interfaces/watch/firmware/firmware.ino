@@ -687,7 +687,7 @@ void loop() {
   }
   if (scene::game.ended) {
     scene::game.ended = false;
-    snprintf(line, sizeof line, "game %d best %u\n", scene::game.score, pet::s.best);
+    snprintf(line, sizeof line, "game %d best %u\n", scene::game.score, pet::best());
     tell(line);
     if (scene::game.newBest) buzz(3), petSave();
   }

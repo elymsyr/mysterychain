@@ -11,10 +11,10 @@
 namespace pet {
 
 // Tunables: hours for a stat to go 100 -> 0 (sleep: 0 -> 100), and the gains.
-const float FULL_H = 10, HAPPY_H = 16, ENERGY_H = 16, SLEEP_H = 8;
-const float FEED = 35, FULL_REFUSE = 90, MSG_JOY = 8, PET_JOY = 5, MSG_COOL_S = 60, STEP_JOY = 1, GAME_COST = 10, GAME_MIN = 15;
+const float FULL_H = 7, HAPPY_H = 16, ENERGY_H = 16, SLEEP_H = 8;
+const float FEED = 35, FULL_REFUSE = 90, MSG_JOY = 8, PET_JOY = 5, MSG_COOL_S = 60, STEP_JOY = 1, GAME_COST = 10, GAME_MIN = 0;
 const uint32_t MAX_OFFLINE_S = 48 * 3600;  // time off counts as sleep, up to this much
-const uint8_t VERSION = 3;                 // file layout version: a mismatch = start fresh
+const uint8_t VERSION = 4;                 // file layout version: a mismatch = start fresh
 
 const int LOOKS = 3;
 
@@ -22,7 +22,7 @@ struct Saved {
   uint8_t version = VERSION;
   float full = 80, happy = 80, energy = 80;  // 0..100, higher is better
   uint32_t steps = 0, stepsDay = 0;          // today's steps, and the local day number they belong to
-  uint16_t best = 0;                         // game high score
+  uint16_t best[LOOKS] = {};                 // game high score per look (each has its own game)
   uint32_t savedUnix = 0;                    // local time of the save in s, 0 = unknown
   uint8_t vib = 1, nightFrom = 23, nightTo = 7;  // motor on, night window (sleep + quiet), from == to: none
   float shakeG = 0.5f;
@@ -109,13 +109,15 @@ float look(int minuteOfDay, int &a, int &b) {  // looks around this minute, retu
   return float(m - KEY[i].min) / (KEY[i + 1].min - KEY[i].min);
 }
 
+uint16_t &best() { return s.best[s.scene]; }  // the current look's high score
+
 bool canPlay() { return s.energy >= GAME_MIN; }
 
 bool gameOver(int score) {  // true: new high score
   s.energy = clamp100(s.energy - GAME_COST);
   joy(fminf(15, score / 3));
-  if (score <= s.best) return false;
-  s.best = score;
+  if (score <= best()) return false;
+  best() = score;
   return true;
 }
 

@@ -128,7 +128,7 @@ void gameDraw() {
 
 // Bubble text: score and high score while running, the result after a game over.
 void gameLabel(char *out, int cap) {
-  int best = pet::s.best > game.score ? pet::s.best : game.score;
+  int best = pet::best() > game.score ? pet::best() : game.score;
   if (!game.dead) snprintf(out, cap, "%d HI %d", game.score, best);
   else if (game.newBest) snprintf(out, cap, "NEW BEST %d", game.score);
   else snprintf(out, cap, "%d BEST %d", game.score, best);
