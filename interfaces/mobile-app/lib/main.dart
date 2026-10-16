@@ -12,10 +12,14 @@ import 'theme.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized(); // the channels are used before runApp
   final keychain = Keychain()..start();
-  runApp(MaterialApp(
-    title: 'MysteryChain',
-    debugShowCheckedModeBanner: false,
-    theme: theme,
-    home: PetPage(keychain: keychain),
+  final home = PetPage(keychain: keychain);
+  runApp(ListenableBuilder( // the accent follows the board's `scene=`
+    listenable: keychain,
+    builder: (context, _) => MaterialApp(
+      title: 'MysteryChain',
+      debugShowCheckedModeBanner: false,
+      theme: themeFor(keychain.settings?.scene),
+      home: home,
+    ),
   ));
 }

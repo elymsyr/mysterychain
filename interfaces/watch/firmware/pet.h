@@ -1,8 +1,12 @@
-// Pet stats (hunger, happiness, energy), mood, feeding and the saved state. Plain C++: also compiles on a PC
-// (interfaces/watch/test/pet_test.cpp). The firmware stores `s` in flash; the cat scene reads and changes it.
+// Pet stats (hunger, happiness, energy), mood, feeding, the saved state and the time-of-day keyframes. Plain C++: also
+// compiles on a PC (interfaces/watch/test/pet_test.cpp). The firmware stores `s` in flash; the pet scenes (cat.h, pavi.h)
+// read and change it.
 #pragma once
 #include <math.h>
 #include <stdint.h>
+#ifndef PET_NAME
+#define PET_NAME "Cat"  // the scene sets its own before including this
+#endif
 
 namespace pet {
 
@@ -10,7 +14,9 @@ namespace pet {
 const float FULL_H = 10, HAPPY_H = 16, ENERGY_H = 16, SLEEP_H = 8;
 const float FEED = 35, FULL_REFUSE = 90, MSG_JOY = 8, PET_JOY = 5, MSG_COOL_S = 60, STEP_JOY = 1, GAME_COST = 10, GAME_MIN = 15;
 const uint32_t MAX_OFFLINE_S = 48 * 3600;  // time off counts as sleep, up to this much
-const uint8_t VERSION = 1;                 // file layout version: a mismatch = start fresh
+const uint8_t VERSION = 3;                 // file layout version: a mismatch = start fresh
+
+const int LOOKS = 3;
 
 struct Saved {
   uint8_t version = VERSION;
@@ -20,7 +26,8 @@ struct Saved {
   uint32_t savedUnix = 0;                    // local time of the save in s, 0 = unknown
   uint8_t vib = 1, nightFrom = 23, nightTo = 7;  // motor on, night window (sleep + quiet), from == to: none
   float shakeG = 0.5f;
-  char name[13] = "Kitty";
+  char names[LOOKS][13] = {PET_NAME, "Pavi", "Nausicaa"};  // one per look (pets.h order); a single scene uses [0]
+  uint8_t scene = 0;  // pets.h: which look the pet has (0 cat, 1 Pavi, 2 Nausicaa)
 };
 Saved s;
 
@@ -71,6 +78,35 @@ void addSteps(uint32_t n, uint32_t day) {  // day: local day number, 0 = clock u
   if (day && day != s.stepsDay) s.steps = 0, s.stepsDay = day, stepAcc = 0;
   s.steps += n, stepAcc += n;
   for (; stepAcc >= 100; stepAcc -= 100) joy(STEP_JOY);
+}
+
+// Runner state (game.h). One for all pet scenes: only one is on screen, and the pet is the same.
+struct Ob {
+  float x;  // left edge
+  uint8_t kind;
+  bool passed;
+};
+struct Game {
+  bool on, dead, ended, newBest, held, fixedSpeed;  // ended: game over event for the firmware (it clears it)
+  int score;
+  float t, speed, dist, air;  // t: since start or game over; air: since take-off, < 0 on the ground
+  Ob ob[3];
+} runner;
+
+// Time of day (K6): each scene keeps a palette look per keyframe; between keyframes the looks blend linearly.
+enum Look : uint8_t { NIGHT, DAWN, DAY, DUSK };
+const struct { int16_t min; uint8_t look; } KEY[] = {  // minute of day, look
+    {0, NIGHT}, {330, NIGHT}, {390, DAWN}, {450, DAWN}, {510, DAY}, {1050, DAY},
+    {1110, DUSK}, {1170, DUSK}, {1230, NIGHT}, {1440, NIGHT}};
+const int SUNRISE = 360, SUNSET = 1140;  // the sun is up 06:00-19:00, the moon the rest
+
+float look(int minuteOfDay, int &a, int &b) {  // looks around this minute, returns the weight of b; -1 = clock unknown = night
+  a = b = NIGHT;
+  if (minuteOfDay < 0) return 0;
+  int m = minuteOfDay % 1440, i = 0;
+  while (KEY[i + 1].min <= m) i++;
+  a = KEY[i].look, b = KEY[i + 1].look;
+  return float(m - KEY[i].min) / (KEY[i + 1].min - KEY[i].min);
 }
 
 bool canPlay() { return s.energy >= GAME_MIN; }

@@ -25,7 +25,7 @@ Full parts list, pinout and power notes: [electronics/](electronics/).
 
 ```text
 interfaces/
-  watch/        Device firmware: one Arduino sketch, the scene (cat, Pavi, Nausicaa + Teto, Teto) picked by an #include
+  watch/        Device firmware: one Arduino sketch; cat, Pavi and Nausicaa picked from the phone
   mobile-app/   Flutter companion app (Android), talks to the keychain over BLE
 electronics/    Parts, pinout, schematic, bring-up guide and test sketches
 mechanical/     Parametric case (build123d), STEP, print files, renders

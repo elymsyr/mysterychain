@@ -2,7 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'cat_head.dart';
+import 'character_list.dart';
+import 'pet_head.dart';
 import 'keychain.dart';
 import 'protocol.dart';
 import 'settings_page.dart';
@@ -50,7 +51,21 @@ class _PetPageState extends State<PetPage> {
   }
 
   void openSettings() => Navigator.of(context)
-      .push(MaterialPageRoute(builder: (_) => SettingsPage(initial: k.settings!, send: k.send)));
+      .push(MaterialPageRoute(builder: (_) => SettingsPage(k)));
+
+  void pickCharacter() => showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: surface,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Character', style: TextStyle(fontSize: 13, color: text2)),
+              CharacterList(k, onPicked: () => Navigator.pop(context)),
+            ]),
+          ),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(listenable: k, builder: (context, _) => page(k.connected));
@@ -100,20 +115,24 @@ class _PetPageState extends State<PetPage> {
   Widget header(bool connected) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Row(children: [
-          Opacity(
-            opacity: connected ? 1 : .55,
-            child: Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: const Color(0xFF2A2723), borderRadius: corner),
-              child: const CustomPaint(size: Size(36, 30), painter: CatHead()),
+          GestureDetector(
+            onTap: connected && k.settings != null ? pickCharacter : null,
+            child: Opacity(
+              opacity: connected ? 1 : .55,
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: const Color(0xFF2A2723), borderRadius: corner),
+                child: CustomPaint(size: const Size(36, 34), painter: PetHead(k.settings?.scene ?? 'cat')),
+              ),
             ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(k.settings?.name ?? 'MysteryChain', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
+              Text(k.settings == null ? 'MysteryChain' : nameOf(k.settings!),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
               const SizedBox(height: 2),
               Row(children: [
                 Icon(Icons.circle, size: 8, color: connected ? ok : text3),
@@ -196,13 +215,13 @@ class _PetPageState extends State<PetPage> {
           borderRadius: corner,
         ),
         child: Row(children: [
-          const Icon(Icons.notifications_active_outlined, color: accent, size: 26),
+          Icon(Icons.notifications_active_outlined, color: accent, size: 26),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Ringing…', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: accent)),
-              SizedBox(height: 3),
-              Text('Press the keychain button to stop', style: TextStyle(fontSize: 13, color: text2)),
+              const SizedBox(height: 3),
+              const Text('Press the keychain button to stop', style: TextStyle(fontSize: 13, color: text2)),
             ]),
           ),
           FilledButton(

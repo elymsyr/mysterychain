@@ -5,8 +5,13 @@ import 'package:mysterychain/protocol.dart';
 void main() {
   test('parses the board lines the app keeps', () {
     expect(parseStats('stats 1234 happy'), (steps: 1234, mood: 'happy'));
-    expect(parseSettings('settings vib=1 shake=0.45 night=23-7 name=Mio Kedi'),
-        (vib: true, shake: .45, from: 23, to: 7, name: 'Mio Kedi'));
+    final old = parseSettings('settings vib=1 shake=0.45 night=23-7 name=Mio Kedi')!;
+    expect((old.vib, old.shake, old.from, old.to, old.scene), (true, .45, 23, 7, 'cat'));
+    expect(old.names, {'cat': 'Mio Kedi'}); // records compare a map by identity
+    expect(parseSettings('settings vib=1 shake=0.45 night=23-7 scene=pavi name=Mio')?.names, {'pavi': 'Mio'});
+    final s = parseSettings('settings vib=1 shake=0.45 night=23-7 scene=nausicaa name=Cat|Pavi 2|Nau')!;
+    expect(s.names, {'cat': 'Cat', 'pavi': 'Pavi 2', 'nausicaa': 'Nau'});
+    expect(nameOf(s), 'Nau');
     expect(parseGame('game 12 best 40'), (score: 12, best: 40));
     expect(parseStats('stats x happy'), isNull);
     expect(parseSettings('button 3'), isNull);

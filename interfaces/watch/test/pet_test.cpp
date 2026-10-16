@@ -1,23 +1,37 @@
-// PC check for pet.h (stats) and game.h (runner physics):
+// PC check for pet.h (stats) and game.h (runner physics), with the cat (default), Pavi (-DPAVI) or Nausicaa (-DNAUSICAA) as the runner;
+// -DPETS: pets.h (all three, the cat on screen) and its look switch:
 //   g++ -std=c++17 -I../firmware pet_test.cpp -o /tmp/pet_test && /tmp/pet_test
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>
+#if defined(PETS)
+#include "pets.h"
+#elif defined(PAVI)
+#include "pavi.h"
+#elif defined(NAUSICAA)
+#include "nausicaa.h"
+#else
 #include "cat.h"
+#endif
+#ifdef PETS
+namespace run = kitty;  // the runner checks need a hero: the cat's
+#else
+namespace run = scene;
+#endif
 
 static bool near(float a, float b) { return fabsf(a - b) < 0.01f; }
 
 // Runs one game obstacle at a fixed speed; the button is held for `hold` s at the best moment. True = cleared.
 static bool clears(int kind, float speed, float hold) {
-  using namespace kitty;
+  using namespace run;
   for (float lead = -5; lead < 60; lead += 0.5f) {  // press when the obstacle is `lead` px ahead: try them all, as a player would
     gameStart();
     game.speed = speed, game.fixedSpeed = true;
-    game.ob[0] = {cat.x + 70, (uint8_t)kind, false};
+    game.ob[0] = {hero.x + 70, (uint8_t)kind, false};
     game.ob[1].x = game.ob[2].x = 1e9f;
     float t = 0, press = -1;
     while (!game.ob[0].passed && !game.dead) {  // passed = fully behind the cat
-      if (press < 0 && game.ob[0].x - cat.x <= lead) press = t;
+      if (press < 0 && game.ob[0].x - hero.x <= lead) press = t;
       gameInput(press >= 0 && t - press < hold);
       gameStep(1 / 60.f);
       t += 1 / 60.f;
@@ -31,10 +45,10 @@ static bool clears(int kind, float speed, float hold) {
 
 // Bird ahead of the head: standing passes under it, a jump into it ends the game.
 static bool birdHits(float speed, bool jump) {
-  using namespace kitty;
+  using namespace run;
   gameStart();
   game.speed = speed, game.fixedSpeed = true;
-  game.ob[0] = {cat.x + 14, BIRD, false};
+  game.ob[0] = {hero.x + 14, BIRD, false};
   game.ob[1].x = game.ob[2].x = 1e9f;
   for (int i = 0; i < 120 && !game.dead; i++) gameInput(jump && i < 6), gameStep(1 / 60.f);
   bool d = game.dead;
@@ -105,13 +119,42 @@ int main() {
 
   // Runner: a tap clears a pot, not a fence; a held jump clears a fence; any jump hits a bird.
   s = Saved();
-  using kitty::POT;
-  using kitty::FENCE;
+  using run::POT;
+  using run::FENCE;
   for (float v : {40.f, 65.f, 90.f}) {
     assert(clears(POT, v, 0.1f));
     assert(!clears(FENCE, v, 0.1f));
     assert(clears(FENCE, v, 0.4f));
     assert(!birdHits(v, false) && birdHits(v, true));
   }
-  puts("pet_test OK");
+#ifdef SCENE_PICK  // pets.h: switching the look rebinds buffer, palette and bubble colors, and ends a running game
+  scene::pick(1);
+  assert(scene::fb == pavi::fb && scene::PAL == pavi::PAL && scene::INK == pavi::INK && scene::NCOL == pavi::NCOL);
+  scene::gameStart();
+  assert(scene::game.on);
+  scene::pick(2);
+  assert(!scene::game.on && scene::fb == nausicaa::fb && scene::INK == nausicaa::INK && scene::find("nausicaa") == 2);
+  assert(!strcmp(s.names[0], "Cat") && !strcmp(s.names[2], "Nausicaa"));
+  scene::pick(0);
+  assert(!scene::game.on && scene::fb == kitty::fb && scene::CREAM == kitty::CREAM && scene::find("pavi") == 1 && scene::find("dog") < 0);
+#endif
+  // Travel: the music keeps a trip going and ends it; a trip on its own ends after its time; feeding ends one.
+  {
+    using namespace run;
+    s = Saved();
+    setMood(HAPPY);
+    music(false), pose(IDLE, 1);
+    music(true);
+    for (int i = 0; i < 30 * 60; i++) step(1 / 60.f);
+    assert(rove);
+    music(false);
+    assert(!rove);
+    travel(2);
+    for (int i = 0; i < 3 * 60; i++) step(1 / 60.f);
+    assert(!rove);
+    travel(10), eat();
+    assert(!rove);
+  }
+
+  puts("pet_test OK (" PET_NAME ")");
 }

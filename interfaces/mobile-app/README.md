@@ -9,7 +9,7 @@ Flutter companion app (Android). Connects to the keychain over BLE (Nordic UART 
 - Sends text: it scrolls in the pet's speech bubble and the motor buzzes twice.
 - **Calls and music, app open or not:** while a call rings, the caller's name shows on the keychain and it buzzes until the call is answered or ends; when the playing track changes (Spotify, YouTube Music, any player with a media notification), title and artist show in the bubble. Needs Notification access.
 - Activity list: what was sent, events from the keychain (`button N`, `shake N (x.xx g)`, `found`), connection changes.
-- **Cat pet** (keychain running the cat scene): the pet's name in the header, today's steps and mood (the 0–100 stats stay on the keychain); **Feed** next to Find; game results in the activity list. The gear opens settings kept on the keychain: name, vibration, shake threshold, night window. Other scenes don't report stats, so these stay hidden.
+- **Pet** (keychain running a pet scene): the character's name and head in the header, today's steps and mood (the 0–100 stats stay on the keychain); **Feed** next to Find; game results in the activity list. Tap the head to pick the character (Cat, Pavi, Nausicaa; tick on the current one, pencil renames it: each keeps its own name). The gear opens settings kept on the keychain: the same character list, vibration, shake threshold, night window. Other scenes don't report stats, so these stay hidden.
 
 - **Setup rows** under the header until each step is done: Nearby devices permission, Bluetooth on, pairing, Notification access, and on Xiaomi a link to Autostart and Battery saver.
 

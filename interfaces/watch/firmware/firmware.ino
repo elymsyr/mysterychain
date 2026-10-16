@@ -5,8 +5,10 @@
 // phone as "button N" / "shake N".
 // Button tap: the character cheers; once the phone has sent the time, the clock shows in the bubble.
 // Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
-// The cat scene is a pet (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = runner game,
-// double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock.
+// pets.h holds the three pets, the cat, Pavi and Nausicaa; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = runner game,
+// double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
+// screen when the phone's track changes (the character travels, the title scrolls over the sky).
+// No motion and no button for IDLE_OFF_MS: the screen goes dark (display cut by Q2); a shake or the button wakes it.
 // Motion is tied to real time: speed stays the same if fps drops. Serial monitor prints fps once a second.
 #include <Adafruit_TinyUSB.h>  // for Serial
 #include <Adafruit_GC9A01A.h>
@@ -14,7 +16,7 @@
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
-#include "cat.h"  // the scene: cat.h (pixel cat pet), pavi.h (Seven Havens), nausicaa.h (Nausicaa + Teto) or teto.h (Teto)
+#include "pets.h"  // the scene: pets.h (cat, Pavi, Nausicaa, picked from the phone), cat.h, pavi.h or nausicaa.h alone
 
 const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0, DISP_PWR = D7;
 const uint32_t ON_HOLD_MS = 1000, OFF_HOLD_MS = 3000;  // power button, see powerOff()
@@ -26,21 +28,24 @@ const uint32_t SHAKE_GAP_MS = 400;   // don't count one shake several times
 const uint32_t MOTOR_MASK_MS = 400;  // ignore shakes this long after the motor stops (use the value measured in T8)
 const uint32_t CLOCK_MS = 3000;      // a button tap shows the time this long
 const uint32_t FIND_MS = 60000;      // find stops by itself after this long: a keychain out of reach mustn't drain the battery
+const float MOVE_G = 0.15;           // movement that keeps the screen on: |a| off 1 g by this much (check the at-rest noise)
+const uint32_t IDLE_OFF_MS = 300000; // screen off after this long without movement or button
 const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
+const uint32_t MUSIC_MS = 12000;     // pet scenes: the music screen stays at least this long after a track change
 // Pet scene only:
 const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: runner game (a buzz says "release now")
 const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for a second one (double tap = feed)
-const uint32_t SHAKE_WAIT_MS = 300;  // a shake is decided this late: a double tap on the case inside it is petting
+const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double tap on the case inside it is petting
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
-const uint8_t TAP_THS = 3;           // IMU tap threshold, x 0.5 g at the 16 g range: check through the printed case
+const uint8_t TAP_THS = 2;           // IMU tap threshold, x 0.5 g at the 16 g range: 3 missed half the taps through the printed case
 const uint32_t SAVE_S = 600;         // stats saved to flash this often (and on feed, settings, new best, power off)
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 LSM6DS3 imu(I2C_MODE, 0x6A);
 BLEUart bleuart;
 bool imuOk;
-const uint8_t HEART = scene::NCOL;  // one palette entry past the scene's own: pink, for hearts on any scene
-uint16_t pal[scene::NCOL + 1], palInv[scene::NCOL + 1], strip[240 * SC * BAND];  // palInv: find blinks with it
+// One palette entry past the scene's own (index scene::NCOL): pink, for hearts on any scene.
+uint16_t pal[256], palInv[256], strip[240 * SC * BAND];  // palInv: find blinks with it
 
 void buildPal() {  // the cat scene's palette follows the time of day: rebuilt once a minute
   static const uint8_t HEART_RGB[3] = {255, 120, 150};
@@ -68,6 +73,7 @@ int hourNow() { return syncLocal ? localNow() / 3600 % 24 : -1; }
 
 char msg[64];
 uint8_t msgColor;
+bool msgMusic;  // msg is a track title: pet scenes show it on the music screen
 uint32_t msgT0, msgDur, buzzT0, buzzN, buzzOn = 120, buzzPer = 240;  // vibration: buzzN pulses, buzzOn ms on every buzzPer ms
 
 void buzz(uint32_t pulses, uint32_t on = 120, uint32_t per = 240) {  // find has its own pattern and always buzzes
@@ -80,7 +86,7 @@ void buzz(uint32_t pulses, uint32_t on = 120, uint32_t per = 240) {  // find has
 void show(uint32_t pulses, uint8_t color = scene::INK, bool react = true) {  // show msg in the bubble, buzz, the character cheers
   msgT0 = millis();
   msgDur = constrain(2 * (strlen(msg) * 6 + 20) * 40, 4000, 15000);  // scrolling text loops at least twice
-  msgColor = color;
+  msgColor = color, msgMusic = false;
   buzz(pulses);
   if (react) scene::cheer();
   Serial.printf("screen: %s\n", msg);
@@ -94,7 +100,7 @@ void tell(const char *s) {  // to the serial monitor and, if connected, the phon
 void showClock() {
   uint32_t t = localNow();
   snprintf(msg, sizeof msg, "%02lu:%02lu", t / 3600 % 24, t / 60 % 60);
-  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK;
+  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK, msgMusic = false;
 }
 
 // Find: buzz-buzz-pause and a blinking screen until the button is pressed, #find 0 arrives or FIND_MS passes.
@@ -153,7 +159,7 @@ void petLoad() {
     if (f.read(&t, sizeof t) == sizeof t && t.version == pet::VERSION) pet::s = t;  // else: defaults
     f.close();
   }
-  pet::s.name[sizeof pet::s.name - 1] = 0;
+  for (auto &n : pet::s.names) n[sizeof n - 1] = 0;
   bootSaved = pet::s.savedUnix;
   petLoaded = true;
 }
@@ -180,18 +186,53 @@ void sendStats(bool force) {  // force: on connect and #stats; otherwise only wh
 }
 
 void sendSettings() {
-  char line[80];
-  snprintf(line, sizeof line, "settings vib=%d shake=%.2f night=%d-%d name=%s\n", pet::s.vib, pet::s.shakeG,
-           pet::s.nightFrom, pet::s.nightTo, pet::s.name);
+  char line[128];
+#ifdef SCENE_PICK
+  const char *look = scene::NAMES[scene::cur];
+  const int looks = scene::COUNT;
+#else
+  const char *look = PET_NAME;
+  const int looks = 1;
+#endif
+  int o = snprintf(line, sizeof line, "settings vib=%d shake=%.2f night=%d-%d scene=%s name=", pet::s.vib, pet::s.shakeG,
+                   pet::s.nightFrom, pet::s.nightTo, look);
+  for (int i = 0; i < looks; i++) o += snprintf(line + o, sizeof line - o, i ? "|%s" : "%s", pet::s.names[i]);  // per look
+  snprintf(line + o, sizeof line - o, "\n");
   tell(line);
 }
+
+void retint();
+#ifdef SCENE_PICK
+void pickScene() {  // the saved look on screen: scene, sky colors, palette, mood, a cheer to say hello
+  scene::pick(pet::s.scene);
+  retint();
+  scene::setMood(pet::mood(hourNow()));
+  scene::cheer();
+}
+#endif
 
 bool setting(const char *a) {  // "#set <a>"; false: not a setting, shows as text
   int x, y;
   if (sscanf(a, "vib %d", &x) == 1) pet::s.vib = x != 0;
   else if (!strncmp(a, "shake ", 6)) pet::s.shakeG = constrain(atof(a + 6), 0.3, 1.0);  // atof: no float scanf in newlib-nano
   else if (sscanf(a, "night %d %d", &x, &y) == 2 && x >= 0 && x < 24 && y >= 0 && y < 24) pet::s.nightFrom = x, pet::s.nightTo = y;
-  else if (!strncmp(a, "name ", 5) && a[5]) toAscii((const uint8_t *)a + 5, strlen(a + 5), pet::s.name, sizeof pet::s.name);
+  else if (!strncmp(a, "name ", 5) && a[5]) {
+    const char *v = a + 5;
+    int i = 0;
+#ifdef SCENE_PICK
+    const char *sp = strchr(v, ' ');  // "name <look> <text>": each look has its own name
+    char look[12] = {};
+    if (sp && sp - v < (int)sizeof look) memcpy(look, v, sp - v);
+    if ((i = scene::find(look)) < 0 || !sp[1]) return false;
+    v = sp + 1;
+#endif
+    toAscii((const uint8_t *)v, strlen(v), pet::s.names[i], sizeof pet::s.names[i]);
+    for (char *c = pet::s.names[i]; *c; c++)
+      if (*c == '|') *c = '/';  // '|' separates the names in `settings`
+  }
+#ifdef SCENE_PICK
+  else if (!strncmp(a, "scene ", 6) && scene::find(a + 6) >= 0) pet::s.scene = scene::find(a + 6), pickScene();
+#endif
   else return false;
   return true;
 }
@@ -234,14 +275,19 @@ void imuPetSetup() {  // LSM6DS3TR-C embedded functions: pedometer and double ta
   imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL10_C, v | 0x14);  // FUNC_EN + PEDO_EN
   imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, 0x8F);       // interrupts on, tap on x/y/z, latched until TAP_SRC is read
   imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_THS_6D, TAP_THS);
-  imu.writeRegister(LSM6DS3_ACC_GYRO_INT_DUR2, 0x4F);       // at 416 Hz: shock 58 ms, quiet 29 ms, taps up to ~310 ms apart (~SHAKE_WAIT_MS)
-  imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, 0x80);    // single and double tap
-  imu.writeRegister(LSM6DS3_ACC_GYRO_MD1_CFG, 0x08);        // double tap on INT1
+  imu.writeRegister(LSM6DS3_ACC_GYRO_INT_DUR2, 0x4F);       // at 416 Hz: shock 58 ms, quiet 29 ms, single-tap shape
+  // single tap only: the chip's own double tap never fired through the case (measured), doubleTap() pairs singles
 }
 
 bool doubleTap() {  // reading TAP_SRC clears the latch, so it is read every loop
+  static uint32_t lastTap = 0;
   uint8_t v = 0;
-  return imuOk && imu.readRegister(&v, LSM6DS3_ACC_GYRO_TAP_SRC) == 0 && (v & 0x10);
+  if (!imuOk || imu.readRegister(&v, LSM6DS3_ACC_GYRO_TAP_SRC) || !(v & 0x20)) return false;
+  uint32_t t = millis();
+  Serial.printf("TAPDBG src=%02X ms=%lu\n", v, t);  // TAPDBG temp
+  if (lastTap && t - lastTap < SHAKE_WAIT_MS) return lastTap = 0, true;  // second single tap in time: double
+  lastTap = t;
+  return false;
 }
 
 void petTick(uint32_t now) {  // once a second: stats, mood; steps, sky, save on their own periods
@@ -270,8 +316,8 @@ float shakeLimit() {
 //   #find  /  #find 0                 start / stop find
 //   #heart                            hearts in the bubble
 //   #call <caller>  /  #call 0        a call rings: name in the bubble + ring buzz / answered or gone
-//   #music <title - artist>           the phone's track changed: in the bubble, quiet
-//   pet scene: #feed, #stats, #set vib|shake|night|name ...  (interfaces/watch/README.md#protocol)
+//   #music <title - artist>           the phone's track changed: quiet; pet scenes: music screen, else the bubble
+//   pet scene: #feed, #stats, #set vib|shake|night|name <look>|scene ...  (interfaces/watch/README.md#protocol)
 // Plain text, and anything else starting with '#', shows in the bubble.
 void receive(uint8_t *rx, int n) {
   rx[n] = 0;
@@ -297,7 +343,7 @@ void receive(uint8_t *rx, int n) {
     find(false);
   } else if (!strcmp(s, "#heart")) {
     strcpy(msg, "\x03 \x03 \x03");  // font glyph 3 is a heart
-    show(2, HEART);
+    show(2, scene::NCOL);  // the heart entry
 #ifdef SCENE_PET
     pet::message();
 #endif
@@ -313,6 +359,9 @@ void receive(uint8_t *rx, int n) {
     strcpy(msg, "\x0E ");  // font glyph 14 is a music note (13 would be eaten as '\r')
     toAscii(rx + 7, n - 7, msg + 2, sizeof msg - 2);
     show(0, scene::INK, false);
+#ifdef SCENE_PET
+    msgMusic = true, msgDur = max(msgDur, MUSIC_MS);
+#endif
 #ifdef SCENE_PET
   } else if (!strcmp(s, "#feed")) {
     feed();
@@ -349,7 +398,33 @@ void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now) {
   gfx.clipL = 0, gfx.clipR = scene::N;
 }
 
+// Music screen: no bubble; the title always scrolls in from the right over the character's trip, 25 px/s.
+// test/preview.cpp redraws this the same way.
+void marquee(const char *s, uint32_t t0, uint32_t now) {
+  const int L = 8, R = 72, Y = 14, GAP = 24;  // L, R: where the round screen is this narrow
+  int w = strlen(s) * 6, x = R - (int)((now - t0) / 40);
+  while (x + w + GAP <= L) x += w + GAP;
+  gfx.setTextWrap(false);
+  gfx.clipL = L, gfx.clipR = R;
+  for (; x < R; x += w + GAP) {  // outlined: readable over any sky
+    gfx.setTextColor(scene::INK);
+    for (int k = 0; k < 4; k++) gfx.setCursor(x + (k == 0) - (k == 1), Y + (k == 2) - (k == 3)), gfx.print(s);
+    gfx.setTextColor(scene::CREAM);
+    gfx.setCursor(x, Y), gfx.print(s);
+  }
+  gfx.clipL = 0, gfx.clipR = scene::N;
+}
+
+bool musicScreen(uint32_t now) {
+#ifdef SCENE_PET
+  return msgMusic && msg[0] && now - msgT0 <= msgDur && !finding && !scene::game.on;
+#else
+  return false;
+#endif
+}
+
 void drawBubble(uint32_t now) {
+  if (musicScreen(now)) return marquee(msg, msgT0, now);
   if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now);
 #ifdef SCENE_PET
   if (scene::game.on) {  // a message covers the score for its time, the game goes on
@@ -363,6 +438,24 @@ void drawBubble(uint32_t now) {
 // Power: daily on/off is the button (the battery switch on the back stays on). Hold the button OFF_HOLD_MS to turn off, about ON_HOLD_MS to turn on
 // (electronics/tests/t10_power). Off = display cut by Q2 + System OFF, a few uA; waking is a reset.
 bool dispOn;
+
+void displayOff() {  // display pins LOW first so they don't feed the display, then cut its power
+  if (!dispOn) return;
+  tft.fillScreen(0);  // goes dark even without Q2
+  SPI.end();
+  const uint8_t pins[] = {TFT_CS, TFT_DC, TFT_RST, PIN_SPI_SCK, PIN_SPI_MOSI};
+  for (uint8_t p : pins) pinMode(p, OUTPUT), digitalWrite(p, LOW);
+  digitalWrite(DISP_PWR, HIGH);  // Q2 off
+  dispOn = false;
+}
+
+void displayOn() {
+  pinMode(DISP_PWR, OUTPUT);
+  digitalWrite(DISP_PWR, LOW);  // display power on through Q2
+  delay(50);
+  tft.begin(SPI_HZ);
+  dispOn = true;
+}
 
 void flashSleep() {  // on-board QSPI flash into deep power-down (0xB9): ~25 uA less while off
   const uint8_t pins[] = {PIN_QSPI_CS, PIN_QSPI_SCK, PIN_QSPI_IO0, PIN_QSPI_IO2, PIN_QSPI_IO3};
@@ -382,12 +475,7 @@ void powerOff() {
 #ifdef SCENE_PET
   petSave();
 #endif
-  if (dispOn) {  // display pins LOW first so they don't feed the display, then cut its power
-    tft.fillScreen(0);  // goes dark even without Q2
-    SPI.end();
-    const uint8_t pins[] = {TFT_CS, TFT_DC, TFT_RST, PIN_SPI_SCK, PIN_SPI_MOSI};
-    for (uint8_t p : pins) pinMode(p, OUTPUT), digitalWrite(p, LOW);
-  }
+  displayOff();
   pinMode(DISP_PWR, OUTPUT);
   digitalWrite(DISP_PWR, HIGH);  // Q2 off
   const uint8_t loads[] = {PIN_LSM6DS3TR_C_POWER, PIN_PDM_PWR};  // IMU and mic supplies
@@ -409,11 +497,7 @@ void setup() {
     if (millis() < ON_HOLD_MS) powerOff();
   }
   Serial.begin(115200);
-  pinMode(DISP_PWR, OUTPUT);
-  digitalWrite(DISP_PWR, LOW);  // display power on through Q2
-  delay(50);
-  tft.begin(SPI_HZ);
-  dispOn = true;
+  displayOn();
   buildPal();
   scene::init();
   imuOk = imu.begin() == 0;
@@ -421,7 +505,11 @@ void setup() {
 #ifdef SCENE_PET
   petLoad();
   if (imuOk) imuPetSetup();
+#ifdef SCENE_PICK
+  pickScene();
+#else
   retint();
+#endif
 #endif
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);  // large MTU: long messages arrive in one write
@@ -440,21 +528,28 @@ void setup() {
 void loop() {
   static uint32_t last = millis(), n = 0, t0 = last;
   uint32_t now = millis();
+#ifdef SCENE_PET
+  scene::music(musicScreen(now));
+#endif
   scene::step(min(now - last, 50UL) / 1000.0f);
   last = now;
   char line[32];
 
-  // BLE: a message is complete when a write ends (no new byte this loop, or a line break)
+  // BLE: a message is complete at a line break, or RX_GAP_MS after its last byte (senders without '\n').
+  // A gap, not "no byte this loop": a write split into 20-byte packets (small MTU) must not become several messages,
+  // or "#music Title - Artist" splits and its tail shows as plain text with a buzz.
+  const uint32_t RX_GAP_MS = 150;
   static uint8_t rx[201];  // 200 bytes + the 0 receive() adds
   static int rxN = 0;
+  static uint32_t rxT = 0;
   bool got = false;
   while (bleuart.available()) {
     int c = bleuart.read();
-    got = true;
+    got = true, rxT = now;
     if (c != '\n' && c != '\r' && rxN < (int)sizeof rx - 1) rx[rxN++] = c;
     else if (rxN) receive(rx, rxN), rxN = 0;
   }
-  if (!got && rxN) receive(rx, rxN), rxN = 0;
+  if (!got && rxN && now - rxT >= RX_GAP_MS) receive(rx, rxN), rxN = 0;
 
   static bool wasConn = false;
   if (bool(Bluefruit.connected()) != wasConn) {
@@ -547,6 +642,8 @@ void loop() {
   digitalWrite(MOTOR, finding ? f < 360 && f % 240 < 120 : e < buzzN * buzzPer && e % buzzPer < buzzOn);  // find: buzz-buzz, pause
   bool still = e >= buzzN * buzzPer + MOTOR_MASK_MS;  // motor vibration must not count as a shake or a tap
 
+  static uint32_t activeT = 0;  // last movement or button edge; finding keeps the screen on
+  if (changed || finding) activeT = now;
   static uint32_t shakes = 0, lastShake = 0, shakeT = 0;
   static float shakeDev = 0;
   static bool shakeWait = false;  // a shake detected at shakeT, counted SHAKE_DELAY later
@@ -564,7 +661,9 @@ void loop() {
   if (imuOk && !finding && still) {
     float ax = imu.readFloatAccelX(), ay = imu.readFloatAccelY(), az = imu.readFloatAccelZ();
     float dev = fabsf(sqrtf(ax * ax + ay * ay + az * az) - 1.0f);
-    if (dev > shakeLimit() && now - lastShake > SHAKE_GAP_MS) {
+    if (dev > (dispOn ? MOVE_G : shakeLimit())) activeT = now;  // dark: only a shake wakes it
+    if (!dispOn) lastShake = now;  // the waking shake is not a shake event
+    else if (dev > shakeLimit() && now - lastShake > SHAKE_GAP_MS) {
       lastShake = now;
       if (!shakeWait) shakeWait = true, shakeT = now, shakeDev = dev;
     }
@@ -576,6 +675,13 @@ void loop() {
     tell(line);
   }
 
+  if (dispOn && now - activeT >= IDLE_OFF_MS) displayOff();
+  else if (!dispOn && now - activeT < IDLE_OFF_MS) displayOn();
+  if (!dispOn) {
+    delay(20);  // nothing to draw: let the CPU sleep, IMU still read ~40x a second
+    t0 = now, n = 0;  // no fps catch-up spam on wake
+    return;
+  }
   drawBubble(now);
   const uint16_t *P = finding && (now - findT0) / 250 % 2 ? palInv : pal;  // find: inverted colors 2x a second
   tft.startWrite();

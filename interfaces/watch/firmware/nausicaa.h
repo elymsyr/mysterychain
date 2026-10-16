@@ -1,9 +1,18 @@
 // Nausicaa (Valley of the Wind) and Teto, the fox-squirrel on her shoulder: draws into an 80x80 color-indexed buffer
-// (fb), scaled 3x on screen. Same interface as ../cat/cat.h (init, step, shake, cheer, fb, PAL, px); no Arduino dependency.
+// (fb), scaled 3x on screen. No Arduino dependency: also compiles on a PC for frame-by-frame testing (interfaces/watch/test).
+// A pet like the cat and Pavi (pet.h): her mood picks what she does, the windy valley follows the clock (tint), and she
+// has the runner game (game.h). Shake: Teto jumps off, she chases him, then kneels and he climbs back.
+// Travel (travel()): she flies her glider (the Mehve) over the valley, the layers scroll by depth (parallax). The music
+// screen shows it; now and then she also takes off on her own.
 #pragma once
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#ifndef PET_NAME
+#define PET_NAME "Nausicaa"  // alone; with the others (pets.h) the pet keeps the cat's default name
+#endif
+#include "pet.h"
 
 namespace nausicaa {
 
@@ -11,38 +20,86 @@ const int N = 80, GROUND = 58;  // logical resolution, ground row (feet stand he
 const float G = 260;            // gravity, px/s²
 
 enum : uint8_t {
-  SKY0, SKY1, SKY2, SKY3, CLOUD, CLOUD2, HILL, HILL2, MILL, GRASS, GRASS2, GRASSL, WIND,
-  INK, SKIN, HAIR, HAIR2, HAIRL, EYE, CREAM, MOUTH, EARRING, TUNIC, TUNIC2, BELT, PANTS,
-  FUR, FUR2, TEYE, SHADOW, NCOL
+  SKY0, SKY1, SKY2, SKY3, CLOUD, CLOUD2, HILL, HILL2, MILL, GRASS, GRASS2, GRASSL, WIND, STAR, SUN, MOON, SHADOW, TREE,
+  INK, SKIN, HAIR, HAIR2, HAIRL, EYE, CREAM, MOUTH, EARRING, TUNIC, TUNIC2, BELT, PANTS, FUR, FUR2, TEYE,
+  PINK, APPLE, LEAF, LEAF2, GREY, CLAY, SPORE, HULL, HULL2, JET, NCOL
 };
-const uint8_t PAL[NCOL][3] = {
+uint8_t PAL[NCOL][3] = {  // day look; tint() rewrites everything up to TREE
     {44, 96, 170},  {74, 134, 200}, {128, 176, 222}, {196, 212, 222},  // sky, top to horizon (haze at the horizon)
-    {252, 246, 232}, {232, 196, 176}, {86, 120, 140}, {60, 92, 106}, {40, 54, 66},  // cloud, its shade; distant ridges, windmill
+    {252, 246, 232}, {232, 196, 176}, {86, 120, 140}, {60, 92, 106}, {40, 54, 66},  // cloud, its shade; ridges, windmills
     {104, 166, 72}, {64, 118, 56},  {172, 214, 104}, {255, 255, 255},  // grass, dark grass, grass tip; wind streak
+    {255, 255, 255}, {255, 236, 140}, {240, 240, 240}, {50, 100, 44}, {50, 100, 60},  // star, sun, moon, shadow; forest
     {30, 22, 30},   {246, 200, 166}, {186, 78, 58},  {124, 44, 38}, {226, 118, 82},  // outline, skin, hair
     {64, 72, 110},  {250, 240, 220}, {190, 90, 90},  {220, 40, 50},  // eye, cream, mouth, earring
     {80, 150, 220}, {46, 96, 170},  {120, 70, 40},  {214, 190, 140},  // tunic, its shade, belt/boots, trousers
-    {250, 190, 60}, {112, 62, 30},  {60, 200, 90},  {50, 100, 44},   // Teto fur, stripes, eye; shadow
+    {250, 190, 60}, {112, 62, 30},  {60, 200, 90},                   // Teto fur, stripes, eye
+    {255, 140, 160}, {214, 48, 56}, {96, 186, 80}, {54, 128, 62}, {178, 176, 186}, {196, 98, 60},  // props
+    {200, 255, 230},                                                 // glowing spore (night visitor)
+    {244, 240, 226}, {190, 184, 172}, {70, 50, 90},                  // glider hull, its shade, jet intake
 };
 
-// Sprites face right and are mirrored when facing left. K outline, S skin, H/h/L hair, E eye, W cream, M mouth,
-// R earring, T/t tunic, B belt; Teto: O fur, D dark stripe, G eye. Head in 3/4 view, short hair with bangs.
-const int HEAD_H = 17, HEAD_AX = 9;  // HEAD_AX: head column that sits over the body center
-const char *const HEAD[3][HEAD_H] = {
-    {".....KKKKKK.....", "...KKHHHHHHKK...", "..KHHHLLHHHHHK..", ".KHHHHHHLLHHHHK.", ".KHHHHHHHHHHHHHK",
-     "KHHHHHHHHHHHHHHK", "KHHHHHHHHSHHHSHK", "KhHHHHHSSSSHSSSK", "KhHHHHSKKSSSKKSK", "KhHHHHSWESSSWESK",
-     "KhHHHhSEESSSEESK", "KhHHHhSSSSSSSSSK", "KhHHHhSSSSSSSSK.", "KhHHHhSSSSSSMSK.", "KhHhhRSSSSSSSK..",
-     ".KhKKKKSSSSSK...", "..K....KKKKK...."},  // eyes open
-    {".....KKKKKK.....", "...KKHHHHHHKK...", "..KHHHLLHHHHHK..", ".KHHHHHHLLHHHHK.", ".KHHHHHHHHHHHHHK",
-     "KHHHHHHHHHHHHHHK", "KHHHHHHHHSHHHSHK", "KhHHHHHSSSSHSSSK", "KhHHHHSSSSSSSSSK", "KhHHHHSSSSSSSSSK",
-     "KhHHHhSKKSSSKKSK", "KhHHHhSSSSSSSSSK", "KhHHHhSSSSSSSSK.", "KhHHHhSSSSSSMSK.", "KhHhhRSSSSSSSK..",
-     ".KhKKKKSSSSSK...", "..K....KKKKK...."},  // blink
-    {".....KKKKKK.....", "...KKHHHHHHKK...", "..KHHHLLHHHHHK..", ".KHHHHHHLLHHHHK.", ".KHHHHHHHHHHHHHK",
-     "KHHHHHHHHHHHHHHK", "KHHHHHHHHSHHHSHK", "KhHHHHHSSSSHSSSK", "KhHHHHSSSSSSSSSK", "KhHHHHSKKSSSKKSK",
-     "KhHHHhKSSKSKSSKK", "KhHHHhSSSSSSSSSK", "KhHHHhSSSSSSSSK.", "KhHHHhSSSSKMMKK.", "KhHhhRSSSSSKKK..",
-     ".KhKKKKSSSSSK...", "..K....KKKKK...."},  // happy ^^, mouth open
+// ---- Time of day (K6): the palette indices stay, their RGB follows the clock (pet::look) ----
+const int NT = TREE + 1;  // SKY0..TREE are tinted
+const uint8_t LOOK[4][NT][3] = {  // pet::NIGHT, DAWN, DAY, DUSK
+    {{10, 14, 40}, {20, 28, 70}, {40, 44, 96}, {70, 62, 112}, {60, 66, 100}, {44, 48, 82}, {34, 44, 76}, {24, 34, 58},
+     {16, 20, 34}, {44, 90, 60}, {28, 62, 44}, {70, 120, 80}, {120, 130, 170}, {255, 250, 220}, {255, 214, 90},
+     {250, 240, 200}, {20, 44, 32}, {20, 44, 36}},
+    {{70, 80, 150}, {150, 110, 165}, {235, 140, 140}, {255, 185, 130}, {255, 214, 200}, {220, 150, 150}, {120, 100, 140},
+     {90, 76, 112}, {50, 40, 64}, {96, 150, 72}, {58, 106, 56}, {170, 190, 110}, {255, 230, 220}, {255, 240, 220},
+     {255, 240, 170}, {250, 235, 200}, {40, 80, 46}, {46, 84, 56}},
+    {{44, 96, 170}, {74, 134, 200}, {128, 176, 222}, {196, 212, 222}, {252, 246, 232}, {232, 196, 176}, {86, 120, 140},
+     {60, 92, 106}, {40, 54, 66}, {104, 166, 72}, {64, 118, 56}, {172, 214, 104}, {255, 255, 255}, {255, 255, 255},
+     {255, 236, 140}, {240, 240, 240}, {50, 100, 44}, {50, 100, 60}},
+    {{44, 46, 112}, {130, 66, 128}, {226, 98, 92}, {255, 158, 84}, {255, 170, 130}, {200, 100, 100}, {100, 64, 100},
+     {70, 46, 80}, {40, 26, 44}, {84, 132, 62}, {50, 90, 50}, {150, 160, 90}, {255, 200, 170}, {255, 240, 190},
+     {255, 226, 150}, {250, 225, 170}, {34, 70, 40}, {40, 70, 46}},
 };
-enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY };
+using pet::SUNRISE;
+using pet::SUNSET;
+
+int clockMin = -1;  // minute of day, -1 = clock unknown (night look, moon at a fixed spot)
+float nightW = 1;   // 1 = full night (all stars), 0 = day
+
+void tint(int minuteOfDay) {
+  clockMin = minuteOfDay;
+  int a, b;
+  float f = pet::look(clockMin, a, b);
+  for (int k = 0; k < NT; k++)
+    for (int c = 0; c < 3; c++) PAL[k][c] = lroundf(LOOK[a][k][c] * (1 - f) + LOOK[b][k][c] * f);
+  nightW = (a == pet::NIGHT ? 1 - f : 0) + (b == pet::NIGHT ? f : 0);
+}
+bool sunUp() { return clockMin >= SUNRISE && clockMin < SUNSET; }
+
+// Sprites face right and are mirrored when facing left. K outline, S skin, H/h/L hair, E eye, W cream, M mouth,
+// R earring, T/t tunic, B belt; Teto: O fur, D dark stripe, G eye. Head in 3/4 view, short hair with bangs; rows 8-14 the face.
+const int HEAD_H = 17, HEAD_AX = 9;  // HEAD_AX: head column that sits over the body center
+#define TOP ".....KKKKKK.....", "...KKHHHHHHKK...", "..KHHHLLHHHHHK..", ".KHHHHHHLLHHHHK.", ".KHHHHHHHHHHHHHK", \
+            "KHHHHHHHHHHHHHHK", "KHHHHHHHHSHHHSHK", "KhHHHHHSSSSHSSSK"
+#define CHEEK "KhHHHhSSSSSSSSSK"
+#define LID "KhHHHHSSSSSSSSSK"
+#define MOUTH_ "KhHHHhSSSSSSSSK.", "KhHHHhSSSSSSMSK.", "KhHhhRSSSSSSSK.."
+#define FLAT "KhHHHhSSSSSSSSK.", "KhHHHhSSSSSKKSK.", "KhHhhRSSSSSSSK.."
+#define CHIN ".KhKKKKSSSSSK...", "..K....KKKKK...."
+const char *const HEAD[][HEAD_H] = {
+    {TOP, "KhHHHHSKKSSSKKSK", "KhHHHHSWESSSWESK", "KhHHHhSEESSSEESK", CHEEK, MOUTH_, CHIN},  // eyes open
+    {TOP, LID, LID, "KhHHHhSKKSSSKKSK", CHEEK, MOUTH_, CHIN},                             // blink
+    {TOP, LID, "KhHHHHSKKSSSKKSK", "KhHHHhKSSKSKSSKK", CHEEK, "KhHHHhSSSSSSSSK.", "KhHHHhSSSSKMMKK.",
+     "KhHhhRSSSSSKKK..", CHIN},                                                            // happy ^^, mouth open
+    {TOP, LID, "KhHHHHSKKSSSKKSK", "KhHHHhSEESSSEESK", CHEEK, FLAT, CHIN},                // half (bored)
+    {TOP, LID, "KhHHHHKSSKSKSSKK", "KhHHHhSKKSSSKKSK", CHEEK, MOUTH_, CHIN},              // closed (asleep)
+    {TOP, "KhHHHHSSSSSSKKSK", "KhHHHHKSSKSSWESK", "KhHHHhSKKSSSEESK", CHEEK, MOUTH_, CHIN},  // one eye open (peek)
+    {TOP, LID, "KhHHHHKSSKSKSSKK", "KhHHHhSKKSSSKKSK", "KhHHHhSSSSKKKKSK", "KhHHHhSSSKMMMKK.", "KhHHHhSSSKMMKSK.",
+     "KhHhhRSSSSKKSK..", CHIN},                                                            // yawn
+    {TOP, "KhHHHHSKSSSSSKSK", "KhHHHHSEKSSSKESK", "KhHHHhSEESSSEESK", CHEEK, FLAT, CHIN},  // frown
+    {TOP, "KhHHHHKSKSSKSKSK", "KhHHHHSKSSSSKSSK", "KhHHHhKSKSSKSKSK", CHEEK, FLAT, CHIN},  // x x (game over)
+};
+#undef TOP
+#undef CHEEK
+#undef LID
+#undef MOUTH_
+#undef FLAT
+#undef CHIN
+enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY, EYES_HALF, EYES_CLOSED, EYES_PEEK, EYES_YAWN, EYES_FROWN, EYES_DIZZY };
 
 const int TORSO_H = 11, TORSO_AX = 6;  // tunic covers the hips below the belt
 const char *const TORSO[TORSO_H] = {
@@ -62,20 +119,44 @@ const char *const TRUN[2][TRUN_H] = {
      "KODODOOOOOOK", "KOOOOOOWWKK.", ".KKOKKOKK...", "..KOK.KOK...", "..KK..KK...."},
 };
 
-uint8_t fb[N * N], bg[N * N];
-float T = 0, awake = 0;  // awake > 0: play mode (refilled by a shake)
+// Props, in the cat's sprite letters (art()): K outline, O apple, W cream, P pink, Y grey, C clay, g/G leaf, F belt brown,
+// b/B tunic blue, # = the caller's color. The runner (game.h) draws its obstacles with the same letters.
+const char *const ZZ[] = {"####", "..#.", ".#..", "####"};
+const char *const LOVE[] = {".P.P.", "PPPPP", ".PPP.", "..P.."};
+const char *const NOTE[2][5] = {{"..##", "..#.", "..#.", "###.", "##.."},
+                                {".####", ".#..#", ".#..#", "##.##", "#..#."}};
+const char *const TWINKLE[] = {".#.", "###", ".#."};
+const char *const FLY[2][5] = {{"K.....K", ".K...K.", "KPK.KPK", "KPPKPPK", ".KK.KK."},   // butterfly, wings open
+                               {".K...K.", "..K.K..", ".KPKPK.", ".KPKPK.", "..K.K.."}};  // wings up
+const char *const APPLE_ART[4][5] = {{".KFg.", "KOOOK", "KOWOK", "KOOOK", ".KKK."},  // whole, then bitten from her side
+                                     {".KFg.", ".KOOK", "..KOK", ".KOOK", ".KKK."},
+                                     {"..Fg.", "..KOK", "...KK", "..KOK", "..KK."},
+                                     {"..Fg.", "..K..", "..K..", "..K..", "....."}};
+const char *const PLATE[] = {"KWWWWWWK", ".KYYYYK.", "..KKKK.."};
+
+uint8_t fb[N * N], bg[N * N], bgAir[N * N];  // the valley; open sky for the flight
+float T = 0, DT = 0, awake = 0;  // awake > 0: play mode (refilled by a shake)
+bool tunes = false;              // music screen on (music()): she flies
+bool rove = false;               // flying (travel())
+float tripLeft = 0;              // s of flight left, 0 = until the music stops
 uint32_t rs = 2463534242u;
 float rnd() {
   rs ^= rs << 13, rs ^= rs >> 17, rs ^= rs << 5;
   return (rs >> 8) / 16777216.0f;
 }
 float clampf(float v, float lo, float hi) { return fminf(fmaxf(v, lo), hi); }
+float wrap(float v, float m) { return v - m * floorf(v / m); }  // v mod m, never negative
+float h01(int i) {  // a fixed random number in 0..1 per integer (scenery along the flight)
+  uint32_t h = i * 2654435761u;
+  h ^= h >> 15, h *= 2246822519u, h ^= h >> 13;
+  return (h & 0xffff) / 65536.0f;
+}
 
 inline void px(int x, int y, uint8_t c) {
   if ((unsigned)x < N && (unsigned)y < N) fb[y * N + x] = c;
 }
 
-// Paints pixels within r of a line segment (arms, legs, tail; a disc if both ends match).
+// Paints pixels within r of a line segment (arms, legs, tail, wings; a disc if both ends match).
 void capsule(float x0, float y0, float x1, float y1, float r, uint8_t c) {
   float dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy + 1e-6f;
   for (int y = floorf(fminf(y0, y1) - r); y <= ceilf(fmaxf(y0, y1) + r); y++)
@@ -97,7 +178,7 @@ uint8_t code(char ch) {
   return INK;
 }
 
-// Sprite column ax lands on x; mirrored horizontally if d < 0. shut: Teto blinks.
+// Sprite column ax lands on x; mirrored horizontally if d < 0. shut: Teto's eye closed.
 void blit(const char *const *rows, int h, int ax, int x, int y0, int d, bool shut = false) {
   for (int r = 0; r < h; r++)
     for (int c = 0; rows[r][c]; c++) {
@@ -106,31 +187,42 @@ void blit(const char *const *rows, int h, int ax, int x, int y0, int d, bool shu
     }
 }
 
+void art(const char *const *rows, int h, int x, int y, int flip = 1, uint8_t hash = INK) {  // props: top-left at x, y
+  static const char K[] = "KOWPYCgGFbB#";
+  const uint8_t C[] = {INK, APPLE, CREAM, PINK, GREY, CLAY, LEAF, LEAF2, BELT, TUNIC, TUNIC2, hash};
+  int w = strlen(rows[0]);
+  for (int r = 0; r < h; r++)
+    for (int c = 0; c < w; c++) {
+      const char *k = strchr(K, rows[r][flip > 0 ? c : w - 1 - c]);
+      if (k && *k) px(x + c, y + r, C[k - K]);
+    }
+}
+
 void shadow(float x, float w) {
   for (int i = -(int)w; i <= (int)w; i++) px(x + i, GROUND, SHADOW);
   for (int i = -(int)(w * 0.6f); i <= (int)(w * 0.6f); i++) px(x + i, GROUND + 1, SHADOW);
 }
 
-// ---- Background: sky, drifting clouds, wind streaks, windmills, grass ----
+// ---- Background: sky (sun or moon, stars), drifting clouds, wind streaks, windmills, grass ----
 const float BAYER[4] = {0.125f, 0.625f, 0.875f, 0.375f};  // 2x2 dither thresholds
 float bayer(int x, int y) { return BAYER[(y & 1) * 2 + (x & 1)]; }
 
 uint8_t skyAt(int x, int y) {
-  float v = y * 3.0f / (GROUND - 1);
+  float v = fminf(y, GROUND - 1) * 3.0f / (GROUND - 1);
   int b = v;
   return b + (v - b > bayer(x, y));
 }
 
-// Cloud: a few blobs with a flat base; bottom strip shaded. Draws over sky only (stays behind the ridges).
+// Cloud: a few blobs with a flat base; bottom strip shaded. Draws over the sky only (behind the ridges).
 void cloud(float cx, float cy, float s) {
   static const float P[4][3] = {{-4, 0.5f, 2.6f}, {-1, -1.5f, 3.4f}, {3, -0.5f, 3}, {6, 1, 2.2f}};  // x, y, radius
-  for (int y = floorf(cy - 5 * s); y <= cy + 2; y++)
+  for (int y = floorf(cy - 5 * s); y <= cy + 2 * s; y++)
     for (int x = floorf(cx - 7 * s); x <= cx + 9 * s; x++) {
-      if ((unsigned)x >= N || (unsigned)y >= N || bg[y * N + x] > SKY3) continue;
+      if ((unsigned)x >= N || (unsigned)y >= N || fb[y * N + x] > SKY3) continue;
       for (auto &p : P) {
         float dx = x + 0.5f - (cx + p[0] * s), dy = y + 0.5f - (cy + p[1] * s);
         if (dx * dx + dy * dy < p[2] * p[2] * s * s) {
-          px(x, y, y >= cy + 1 ? CLOUD2 : CLOUD);
+          px(x, y, y >= cy + s ? CLOUD2 : CLOUD);
           break;
         }
       }
@@ -145,12 +237,11 @@ struct {
 void gust(int i, float x) { gusts[i] = {x, 6 + 34 * rnd(), 3 + 4 * rnd(), 45 + 35 * rnd()}; }
 
 const float MILLS[2][5] = {{63, 27, 6, 1.6f, MILL}, {18, 36, 4, 2.3f, HILL2}};  // hub x, y, blade length, angular speed, color
-void blades() {
-  for (auto &m : MILLS)
-    for (int b = 0; b < 4; b++) {
-      float a = T * m[3] + b * 1.5708f, x = m[0] + 0.5f, y = m[1] + 0.5f;
-      capsule(x, y, x + m[2] * cosf(a), y + m[2] * sinf(a), 0.6f, m[4]);
-    }
+void blades(float x, float y, float len, float speed, uint8_t c) {
+  for (int b = 0; b < 4; b++) {
+    float a = T * speed + b * 1.5708f;
+    capsule(x + 0.5f, y + 0.5f, x + 0.5f + len * cosf(a), y + 0.5f + len * sinf(a), 0.6f, c);
+  }
 }
 
 void grassTips() {  // grass tips bending left in the wind
@@ -160,29 +251,107 @@ void grassTips() {  // grass tips bending left in the wind
   }
 }
 
-// ---- Nausicaa and Teto ----
-enum { IDLE, RUN, CROUCH, JUMP, LAND, KNEEL };
+const int NS = 14;
+uint8_t sx[NS], sy[NS];
+float sp[NS];
+
+void skyDisc(float cx, float cy, float r, uint8_t c, float cutX = 0, float cutY = 0, float cutR = 0) {  // only over sky
+  for (int y = floorf(cy - r); y <= cy + r; y++)
+    for (int x = floorf(cx - r); x <= cx + r; x++)
+      if ((unsigned)x < N && (unsigned)y < N && fb[y * N + x] <= SKY3 && hypotf(x + 0.5f - cx, y + 0.5f - cy) < r &&
+          (cutR == 0 || hypotf(x + 0.5f - cutX, y + 0.5f - cutY) > cutR))
+        fb[y * N + x] = c;
+}
+
+void drawWind(float speed) {  // streaks over the sky and clouds only
+  for (auto &g : gusts)
+    for (int k = 0; k < g.len * speed; k++) {
+      int x = g.x + k, y = g.y;
+      if ((unsigned)x < N && fb[y * N + x] <= CLOUD2) px(x, y, WIND);
+    }
+}
+
+// Stars, then sun or moon on an arc from left (rise) to right (set). Over the sky in fb, so draw it before the land.
+void sunMoon(float horizon) {
+  for (int i = 0; i < NS; i++)
+    if (i < NS * nightW && sinf(T * 1.7f + sp[i]) > -0.2f) px(sx[i], sy[i], STAR);
+  float mx = 62, my = 9;  // moon at a fixed spot while the clock is unknown
+  bool moon = true;
+  if (clockMin >= 0) {
+    moon = !sunUp();
+    float p = moon ? float((clockMin - SUNSET + 1440) % 1440) / (1440 - SUNSET + SUNRISE) : float(clockMin - SUNRISE) / (SUNSET - SUNRISE);
+    mx = 12 + 56 * p, my = horizon - 34 * sinf(3.1416f * p);
+  }
+  if (moon) skyDisc(mx, my, 4.6f, MOON, mx + 2.5f, my - 1.5f, 4.2f);  // crescent
+  else skyDisc(mx, my, 4.2f, SUN);
+}
+
+void drawSky() {
+  memcpy(fb, bgAir, sizeof fb);
+  sunMoon(42);
+  for (int i = 0; i < N * N; i++)  // the valley over the sky
+    if (bg[i] > SKY3) fb[i] = bg[i];
+  for (auto &c : CLOUDS) {  // drift left with the wind, wrap from left edge to right
+    float x = fmodf(c[0] - T * c[3], 110);
+    cloud(x < 0 ? x + 95 : x - 15, c[1], c[2]);
+  }
+  drawWind(1);
+  for (auto &m : MILLS) blades(m[0], m[1], m[2], m[3], m[4]);
+  grassTips();
+}
+
+// ---- Nausicaa, Teto, visitors ----
+enum { IDLE, RUN, CROUCH, JUMP, LAND, KNEEL, REACH, SLEEP, EAT, REFUSE, PURR, YAWN, BORED, HUNGRY, ANGRY, KO, WAVE, SIT,
+       BREEZE, TWIRL, DANCE };
 struct {
-  float x = 32, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0, blow = 0;  // blow: hair flutter from motion, 0..1
+  float x = 32, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0, peek = 0, blow = 0;  // blow: hair flutter 0..1
   int dir = 1, st = IDLE, hops = 0;
-  bool yay = false;  // both arms up during a joy hop
+  bool booped = false, yay = false, wake = false;  // yay: both arms up during a joy hop; wake: yawn after this landing
 } girl;
 
-enum { SHOULDER, HAND, LEAP, SCAMPER, SIT };  // LEAP and later: Teto is off the girl
+enum { SHOULDER, HAND, LEAP, SCAMPER, PERCH };  // LEAP and later: Teto is off the girl
 struct {
   float x = 0, y = 0, vx = 0, vy = 0, t = 0, dur = 1, tx = 0, ty = GROUND, phase = 0;
   int dir = 1, st = SHOULDER;
   bool toHand = false, home = false;  // toHand: the leap lands on her hand; home: running back to her hand
 } teto;
-float shX, shY, hdX, hdY;  // shoulder and reaching hand (updated while drawing each frame)
+float shX, shY, hdX, hdY;  // her shoulder and reaching hand (updated while drawing each frame)
 
-void go(int st, float dur) { girl.st = st, girl.t = 0, girl.dur = dur; }
+struct {
+  float x = 0;
+  bool on = false;
+} bowl;  // the empty plate while she's hungry
+enum { BUTTERFLY, GLOWSPORE };
+struct {
+  float x = 0, y = 0, vx = 0, vy = 0, t = 0, home = 0;
+  int kind = BUTTERFLY;
+  bool on = false, flee = false;
+} vis;
+
+pet::Mood mood = pet::HAPPY;
+float visitT = 150, yawnT = 0, funT = 12, tripT = 200;  // s until the next visitor / tired yawn / idle trick / flight
+
+void setMood(pet::Mood m) { mood = m; }
+
+void go(int st, float dur) {
+  girl.st = st, girl.t = 0, girl.dur = dur, girl.booped = false;
+  if (st != HUNGRY) bowl.on = false;
+}
 void tgo(int st, float dur) { teto.st = st, teto.t = 0, teto.dur = dur; }
+void pose(int st, float dur) {  // a ground state from wherever she is (ends a flight)
+  rove = false;
+  girl.y = GROUND, girl.vx = girl.vy = 0, girl.hops = 0, girl.wake = false, girl.yay = false, girl.peek = 0;
+  go(st, dur);
+}
+bool grounded() { return girl.st != CROUCH && girl.st != JUMP && girl.st != LAND && girl.st != REACH && girl.st != ANGRY && girl.st != KO; }
 bool loose() { return teto.st >= LEAP; }
-int side() { return teto.x >= girl.x ? 1 : -1; }
+bool chasing() { return vis.on && !vis.flee; }
+float aimX() { return chasing() ? vis.x : teto.x; }  // what she's after: a visitor, else Teto
+float aimY() { return chasing() ? vis.y : teto.y; }
+int side() { return aimX() >= girl.x ? 1 : -1; }
 
-void leap(float xt, float h, int hops) {  // girl to xt, h high; hops = how many more hops after
-  xt = clampf(xt, 14, 66);
+void leap(float xt, float h, int hops) {  // to xt, h high; hops = how many more hops after
+  xt = clampf(xt, 16, 64);
   girl.vy = -sqrtf(2 * G * h);
   girl.vx = (xt - girl.x) / (2 * -girl.vy / G);
   girl.hops = hops;
@@ -211,78 +380,173 @@ void roam() {  // in play Teto runs or leaps somewhere
   else teto.tx = x, teto.home = false, tgo(SCAMPER, 0);
 }
 
-void think() {  // girl idle, Teto on the ground: she follows him, then kneels and holds out her hand
+// A butterfly (day) or a glowing spore (night) comes in and hovers near her; she reaches or jumps for it.
+void visit() {
+  if (vis.on) return;
+  vis.on = true, vis.flee = false, vis.t = 0;
+  vis.kind = sunUp() ? BUTTERFLY : GLOWSPORE;
+  int open = girl.x < N / 2 ? 1 : -1;  // the roomier side
+  vis.x = open > 0 ? 84 : -4;
+  vis.home = clampf(girl.x + open * (24 + 10 * rnd()), 18, 62);
+  vis.y = vis.kind == BUTTERFLY ? GROUND - 20 : GROUND - 30;  // the butterfly in reach, the spore needs a jump
+}
+void flee() {
+  vis.flee = true;
+  vis.vx = (vis.x >= girl.x ? 1 : -1) * 60, vis.vy = -30;
+}
+
+// Did the tip of the reaching front hand touch the visitor
+bool touch() { return chasing() && hypotf(vis.x - (girl.x + girl.dir * 6.5f), vis.y - (girl.y - 19)) < 5; }
+
+void boop() {  // caught 30 % of the time, else it flies off
+  girl.booped = true, girl.happy = 1.2f;
+  if (rnd() < 0.3f) vis.on = false, pet::joy(3), girl.happy = 2.5f, girl.yay = true, girl.hops = 2;
+  else flee();
+}
+
+void reachOrJump() {
+  if (vis.y > GROUND - 23) go(REACH, 0.55f);  // reachable standing up
+  else girl.hops = 0, go(CROUCH, 0.3f);
+}
+
+void think() {  // idle wait is over: go after the visitor, or follow Teto and hold out her hand
   girl.dir = side();
-  if (awake > 0 && rnd() < 0.15f) girl.hops = 2, girl.yay = true, girl.happy = 2, go(CROUCH, 0.15f);
+  if (chasing()) fabsf(vis.x - girl.dir * 6 - girl.x) > 4 ? go(RUN, 0) : reachOrJump();
+  else if (awake > 0 && rnd() < 0.15f) girl.hops = 2, girl.yay = true, girl.happy = 2, go(CROUCH, 0.15f);  // joy hop
   else if (fabsf(teto.x - girl.dir * 12 - girl.x) > 3) go(RUN, 0);
   else go(KNEEL, 1.0f);
 }
 
-// Device shaken: Teto leaps off her shoulder, the girl startles and jumps, tries to catch him for a few seconds.
-void shake() {
-  awake = 6;
-  if (teto.st != LEAP) hop(roamX(), GROUND, 8 + 8 * rnd(), false);
-  if (girl.st != JUMP) girl.yay = false, leap(girl.x, 5, 0);
-}
+void travel(float secs);
+void roveStep(float dt);
 
-// Message/button: the girl raises her arms and hops twice for joy (a sitting Teto hops too).
-void cheer() {
-  girl.happy = 2.5f;
-  if (girl.st == IDLE || girl.st == RUN) girl.hops = 2, girl.yay = true, go(CROUCH, 0.15f);
-  if (teto.st == SIT) hop(teto.x, GROUND, 5, false);
-}
+void idleDone() { go(IDLE, (0.5f + 1.0f * rnd()) * (mood == pet::TIRED ? 2 : 1)); }  // tired: plays half as often
 
 void update(float dt) {
-  T += dt, girl.t += dt, teto.t += dt, girl.happy -= dt, awake -= dt;
-  float blow = girl.st == RUN ? 1 : girl.st == JUMP ? 0.8f : 0;  // hair lifts fast, settles slowly when she stops
+  T += dt, DT = dt, girl.t += dt, teto.t += dt, girl.happy -= dt, girl.peek -= dt, awake -= dt, yawnT -= dt;
+  if (girl.st == IDLE && mood == pet::HAPPY && !vis.on && !loose() && !rove) funT -= dt, tripT -= dt;
+  float blow = rove ? 1 : girl.st == RUN || girl.st == BREEZE ? 1 : girl.st == JUMP ? 0.8f : 0;  // hair lifts fast, settles slowly
   girl.blow += (blow - girl.blow) * fminf(1, (blow > girl.blow ? 8 : 3) * dt);
   for (int i = 0; i < NW; i++)
-    if ((gusts[i].x -= gusts[i].v * dt) < -gusts[i].len) gust(i, N + 40 * rnd());
+    if ((gusts[i].x -= gusts[i].v * (rove ? 2 : 1) * dt) < -gusts[i].len * 2) gust(i, N + 40 * rnd());
+  if (rove) return roveStep(dt);
+
+  if (vis.on) {
+    vis.t += dt;
+    if (vis.flee) {
+      vis.x += vis.vx * dt, vis.y += vis.vy * dt;
+      if (vis.x < -10 || vis.x > N + 10 || vis.y < -10) vis.on = false;
+    } else {
+      float sp = 25 * dt;
+      vis.x += clampf(vis.home - vis.x, -sp, sp);
+      if (vis.t > 12) flee();  // she never came
+    }
+  }
+  if (mood == pet::HAPPY && girl.st == IDLE && awake <= 0 && !vis.on && !loose() && (visitT -= dt) <= 0)
+    visit(), visitT = 120 + 180 * rnd();
 
   switch (girl.st) {
     case IDLE:
-      if (!loose()) {
-        if (girl.t > girl.dur + 5) girl.dir = -girl.dir, girl.t = 0;  // looks around now and then
-        break;
-      }
-      if (fabsf(teto.x - girl.x) > 3) girl.dir = side();
-      if (teto.st != LEAP && girl.t > girl.dur) think();
+      if ((chasing() || loose()) && fabsf(aimX() - girl.x) > 3) girl.dir = side();
+      if (girl.t <= girl.dur) break;
+      if (chasing()) {
+        if (fabsf(vis.home - vis.x) < 1) think();
+      } else if (loose()) {
+        if (teto.st != LEAP) think();
+      } else if (mood == pet::SLEEP) go(SLEEP, 0);
+      else if (mood == pet::HUNGRY) bowl.x = clampf(girl.x + (girl.x < N / 2 ? 12 : -12), 14, 66), bowl.on = true, go(HUNGRY, 0);
+      else if (mood == pet::SAD) go(BORED, 0);
+      else if (mood == pet::TIRED && yawnT <= 0) yawnT = 30, go(YAWN, 1.5f);
+      else if (tripT <= 0) tripT = 180 + 240 * rnd(), travel(15 + 10 * rnd());
+      else if (funT <= 0) {
+        float r = rnd();
+        funT = 10 + 15 * rnd();
+        if (r < 0.2f) go(WAVE, 2.4f);
+        else if (r < 0.4f) go(SIT, 6 + 4 * rnd());
+        else if (r < 0.6f) go(BREEZE, 3.5f);
+        else if (r < 0.8f) go(TWIRL, 1.6f);
+        else go(DANCE, 6);
+      } else if (girl.t > girl.dur + 5) girl.dir = -girl.dir, girl.t = 0;  // looks around now and then
       break;
     case RUN: {
       int s = side();
-      float tx = clampf(teto.x - s * 12, 14, 66), d = tx - girl.x;
+      float tx = clampf(aimX() - s * (chasing() ? 6 : 12), 14, 66), d = tx - girl.x;
       if (fabsf(d) < 1.5f) {
         girl.dir = s;
-        go(KNEEL, 1.0f);
+        chasing() ? reachOrJump() : go(KNEEL, 1.0f);
         break;
       }
       girl.dir = d > 0 ? 1 : -1;
       girl.x += girl.dir * fminf(34 * dt, fabsf(d));
       girl.phase += 14 * dt;
-      if (girl.t > 3 || !loose()) go(IDLE, 0.3f);  // couldn't catch up: take a breather
+      if (girl.t > 3 || (!chasing() && !loose())) go(IDLE, 0.3f);  // couldn't catch up: take a breather
       break;
     }
     case CROUCH:
-      if (girl.t >= girl.dur) leap(girl.x, 6, girl.hops - 1);
+      if (girl.t < girl.dur) break;
+      if (girl.hops) leap(girl.x, 6, girl.hops - 1);
+      else leap(vis.x - girl.dir * 6, clampf(GROUND - 18 - vis.y, 4, 22), 0);
       break;
     case JUMP:
       girl.vy += G * dt, girl.x += girl.vx * dt, girl.y += girl.vy * dt;
+      if (!girl.yay && !girl.booped && !girl.wake && touch()) boop();
       if (girl.y < GROUND || girl.vy < 0) break;
       girl.y = GROUND;
-      go(LAND, girl.hops > 0 ? 0.08f : 0.18f);
+      go(LAND, girl.hops ? 0.08f : 0.18f);
       break;
     case LAND:
       if (girl.t < girl.dur) break;
-      if (girl.hops > 0) leap(girl.x, 6, girl.hops - 1);
-      else girl.yay = false, go(IDLE, 0.4f + 0.8f * rnd());
+      if (girl.hops) leap(girl.x, 6, girl.hops - 1);
+      else if (girl.wake) girl.wake = false, go(YAWN, 1.5f);
+      else girl.yay = false, idleDone();
+      break;
+    case REACH:
+      if (!girl.booped && girl.t > 0.15f && girl.t < 0.4f && touch()) boop();
+      if (girl.t > girl.dur) girl.hops ? (girl.dir = side(), go(CROUCH, 0.15f)) : go(IDLE, 0.3f + 0.5f * rnd());
       break;
     case KNEEL:  // in play waits briefly; after play, until Teto is on her shoulder
       if (teto.st == SHOULDER || (awake > 0 && girl.t > girl.dur) || girl.t > 6) go(IDLE, 1 + rnd());
       break;
+    case SLEEP:
+      if (mood != pet::SLEEP) go(YAWN, 1.5f);
+      break;
+    case HUNGRY:
+      if (mood != pet::HUNGRY) go(IDLE, 1);
+      break;
+    case BORED:
+      if (mood != pet::SAD) go(IDLE, 1);
+      break;
+    case ANGRY:  // one hop back, then a glare
+      if (girl.y < GROUND || girl.vy < 0) {
+        girl.vy += G * dt, girl.x = clampf(girl.x + girl.vx * dt, 16, 64), girl.y += girl.vy * dt;
+        if (girl.y >= GROUND) girl.y = GROUND, girl.vy = 0;
+      }
+      if (girl.t > girl.dur) go(IDLE, 1);
+      break;
+    case TWIRL:  // spins on the spot: turns every 0.2 s
+      if (girl.t < girl.dur - 0.2f) girl.dir = fmodf(girl.t, 0.4f) < 0.2f ? 1 : -1;
+      // fall through
+    case EAT:
+    case REFUSE:
+    case PURR:
+    case WAVE:
+    case SIT:
+    case BREEZE:
+      if (girl.t > girl.dur) go(IDLE, 1 + rnd());
+      break;
+    case YAWN:
+      if (girl.t > girl.dur) go(IDLE, 2 + 2 * rnd());
+      break;
+    case DANCE: {  // the last two beats of every 8 are a twirl
+      float b = fmodf(T * 2, 8);
+      if (b >= 6) girl.dir = fmodf(b, 0.5f) < 0.25f ? 1 : -1;
+      if (girl.t > girl.dur) go(IDLE, 1 + rnd());
+      break;
+    }
   }
 
   switch (teto.st) {
-    case SHOULDER: break;  // position is pinned to the shoulder while drawing
+    case SHOULDER: break;  // pinned to the shoulder while drawing
     case HAND:
       if (teto.t > 0.75f) tgo(SHOULDER, 0);
       break;
@@ -291,7 +555,7 @@ void update(float dt) {
       if (teto.vy < 0 || teto.y < teto.ty) break;
       teto.x = teto.tx, teto.y = teto.ty;
       if (teto.toHand) tgo(HAND, 0);
-      else tgo(SIT, 0.3f + 0.8f * rnd());
+      else tgo(PERCH, 0.3f + 0.8f * rnd());
       break;
     case SCAMPER: {
       float d = teto.tx - teto.x;
@@ -300,10 +564,10 @@ void update(float dt) {
       teto.phase += 20 * dt;
       if (fabsf(d) > 0.5f) break;
       if (teto.home && girl.st == KNEEL) teto.dir = -girl.dir, hop(hdX, hdY, 3, true);
-      else tgo(SIT, 0.3f + 0.8f * rnd());
+      else tgo(PERCH, 0.3f + 0.8f * rnd());
       break;
     }
-    case SIT: {
+    case PERCH:
       if (girl.st == KNEEL && awake <= 0) {  // play is over: comes to the reaching hand
         if (girl.t > 0.25f) teto.tx = clampf(hdX + girl.dir * 4, 8, 72), teto.home = true, tgo(SCAMPER, 0);
       } else if (girl.st == KNEEL && fabsf(teto.x - hdX) < 18) {  // in play: leaps over the hand and her head and runs off
@@ -311,16 +575,48 @@ void update(float dt) {
       } else if (awake > 0 && teto.t > teto.dur) roam();
       else if (fabsf(girl.x - teto.x) > 2) teto.dir = girl.x > teto.x ? 1 : -1;
       break;
-    }
+  }
+}
+
+// Two locks at the nape fly back with the wind; `a` tilts them (+ = up).
+void hairLocks(float cx, int ky, int d, float a0) {
+  if (girl.blow < 0.2f) return;
+  float rx[2], ry[2], tx[2], ty[2], len = 3 * girl.blow;  // root, tip
+  for (int i = 0; i < 2; i++) {
+    float a = a0 + 0.25f * sinf(T * 14 + i * 2.1f);
+    rx[i] = cx + d * (1.5f - HEAD_AX), ry[i] = ky + 7.5f + i * 4;
+    tx[i] = rx[i] - d * len * cosf(a), ty[i] = ry[i] - len * sinf(a);
+    capsule(rx[i], ry[i], tx[i], ty[i], 1.0f, INK);
+  }
+  for (int i = 0; i < 2; i++) capsule(rx[i] + d * 1.5f, ry[i], tx[i], ty[i], 0.5f, HAIR);
+}
+
+void leg(float x0, float y0, float x1, float y1) {  // trousers on top, boot below
+  float mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  capsule(x0, y0, x1, y1, 1.6f, INK);
+  capsule(x0, y0, mx, my, 0.7f, PANTS), capsule(mx, my, x1, y1, 0.8f, BELT);
+}
+
+// Music notes rising from (x, y), drifting sideways by `drift` px over their life.
+void notes(float x, float y, float drift) {
+  for (int k = 0; k < 3; k++) {
+    float p = fmodf(T * 0.35f + k / 3.0f, 1);
+    int nx = lroundf(x + (drift ? drift * p : (k - 1) * 18) + 3 * sinf(T * 2 + k * 2)), ny = lroundf(y - 14 * p);
+    if (p < 0.85f || fmodf(T, 0.2f) < 0.1f) art(NOTE[k % 2], 5, nx - 2, ny, 1, INK);  // blinks out at the top
   }
 }
 
 void drawGirl() {
-  const int d = girl.dir;
+  const int d = girl.dir, st = girl.st;
   float hip = 7, th[2] = {0.25f, 0.25f}, fx[2] = {}, fl[2] = {};  // hip height; arm angle (0 down, π up); foot slide/lift
   // array index: 0 back side, 1 front (facing) side
+  float hdx = 0, hdy = 0, tap = 0;  // head offset; sitting with legs out: feet tapping
+  int eyes = -1;                    // -1: open / blink / happy as usual
+  enum { STAND, KNEES, OUT } legs = STAND;  // sitting: knees up / legs stretched out in front
+  int apple = -1;                              // apple in the front hand: bite stage
+  bool air = st == JUMP || ((st == ANGRY || st == KO) && girl.y < GROUND - 0.5f);
 
-  switch (girl.st) {
+  switch (st) {
     case IDLE: hip += 0.6f * sinf(T * 3), th[0] = th[1] = 0.25f + 0.06f * sinf(T * 3); break;  // breathing
     case RUN:
       hip += 0.8f * fabsf(sinf(girl.phase));
@@ -331,45 +627,132 @@ void drawGirl() {
       break;
     case CROUCH: hip = 5, th[0] = th[1] = 0.7f, fx[0] = -d, fx[1] = d; break;
     case LAND: hip = 5.5f, th[0] = th[1] = 0.6f; break;
-    case JUMP:
-      fl[0] = fl[1] = girl.vy < 0 ? 0 : 1.5f, fx[0] = -d * 0.8f, fx[1] = d * 0.8f, th[0] = th[1] = 1.1f;
+    case JUMP: {
+      bool up = girl.vy < 0;
+      fl[0] = fl[1] = up ? 0 : 1.5f, fx[0] = -d * 0.8f, fx[1] = d * 0.8f;
+      th[0] = 1.1f, th[1] = girl.yay ? 1.1f : 2.7f;  // front arm reaches for the visitor
       break;
-    case KNEEL: hip = 4, fx[0] = -d * 3, fx[1] = d * 2, th[0] = 0.3f, th[1] = fminf(1.4f, girl.t * 6); break;  // front hand toward Teto
+    }
+    case REACH: {
+      float t = girl.t;
+      hip = 7.5f, th[0] = 0.4f;  // on tiptoe
+      th[1] = t < 0.2f ? 0.25f + 2.6f * t / 0.2f : t < 0.35f ? 2.85f : fmaxf(0.25f, 2.85f - 2.6f * (t - 0.35f) / 0.2f);
+      break;
+    }
+    case KNEEL: hip = 4, fx[0] = -d * 3, fx[1] = d * 2, th[0] = 0.3f, th[1] = fminf(1.4f, girl.t * 6); break;  // hand toward Teto
+    case SLEEP:  // sitting, hugging her knees, head down, breathing
+      legs = KNEES, hip = 3, th[0] = -0.5f, th[1] = 0.55f, hdy = 2 + 0.5f * sinf(T * 3.1416f);
+      eyes = girl.peek > 0 ? EYES_PEEK : EYES_CLOSED;
+      break;
+    case BORED:  // sitting, legs out, head down, a foot moving now and then
+      legs = OUT, hip = 3, th[0] = -0.3f, th[1] = 0.15f, hdy = 1.5f, tap = 1.2f * sinf(T * 1.2f), eyes = EYES_HALF;
+      break;
+    case SIT:  // sitting, legs out, feet tapping, leaning back on her hands
+      legs = OUT, hip = 3, th[0] = 0.5f, th[1] = 0.15f, tap = 1.5f * sinf(T * 5);
+      if (fmodf(girl.t, 3.5f) > 2.6f) eyes = EYES_HAPPY;
+      break;
+    case HUNGRY:  // hands on her belly next to the empty plate, now and then looking at it
+      th[0] = -0.55f, th[1] = -0.3f, hip += 0.3f * sinf(T * 2);
+      if (fmodf(girl.t, 4) > 3.0f) hdy = 1, eyes = EYES_HALF;
+      break;
+    case EAT: {  // an apple, bite by bite
+      float t = girl.t;
+      th[1] = 2.5f + 0.1f * sinf(T * 12), apple = t < 0.7f ? 0 : t < 1.5f ? 1 : t < 2.3f ? 2 : 3;
+      eyes = fmodf(t, 0.3f) < 0.15f ? EYES_HAPPY : EYES_CLOSED;  // chewing
+      break;
+    }
+    case REFUSE:  // head shake, hand up: no thanks
+      hdx = 1.2f * sinf(girl.t * 20), th[1] = 1.6f + 0.2f * sinf(girl.t * 20), eyes = EYES_BLINK;
+      break;
+    case PURR:  // petted: hands to her cheeks, giggling
+      th[0] = -2.5f, th[1] = 2.5f, hip += 0.5f * fabsf(sinf(T * 8)), eyes = EYES_HAPPY;
+      break;
+    case YAWN: {  // stretch, both arms up, mouth wide
+      float k = fminf(1, 1.5f * sinf(fminf(girl.t / girl.dur, 1) * 3.1416f));
+      hip = 7 + 0.8f * k, th[0] = th[1] = 0.25f + 2.6f * k;
+      if (girl.t > 0.25f && girl.t < 1.25f) eyes = EYES_YAWN;
+      break;
+    }
+    case ANGRY:  // fists down and back, frown
+      th[0] = th[1] = -0.35f, eyes = EYES_FROWN;
+      if (!air) hip = 6.5f;
+      break;
+    case KO:  // game over: tumbles down, then sits dazed with stars
+      eyes = EYES_DIZZY;
+      if (air) th[0] = 2.4f, th[1] = 2.0f, fl[0] = fl[1] = 1.5f;
+      else legs = KNEES, hip = 3, th[0] = -0.5f, th[1] = 0.5f, hdy = 1;
+      break;
+    case WAVE:  // waves at you
+      th[1] = 2.7f + 0.35f * sinf(girl.t * 14), eyes = EYES_HAPPY;
+      break;
+    case BREEZE:  // reads the wind: eyes closed, arms open, hair flying
+      th[0] = th[1] = 1.2f + 0.08f * sinf(T * 2), eyes = EYES_CLOSED;
+      break;
+    case TWIRL:
+      th[0] = th[1] = 1.5f, hip += 0.6f * fabsf(sinf(girl.t * 15)), eyes = EYES_HAPPY;
+      break;
+    case DANCE: {  // to a 120 bpm beat: arms take turns, then both up and side steps, then a twirl (update())
+      float b = T * 2, ph = fmodf(b, 1), bounce = fabsf(sinf(3.1416f * ph));
+      int beat = (int)b % 8;
+      hip = 6.4f + 0.9f * bounce;
+      if (beat < 4) th[beat % 2] = 2.6f, th[1 - beat % 2] = 0.5f, fl[beat % 2] = 1.5f * bounce;
+      else if (beat < 6) th[0] = th[1] = 2.5f + 0.3f * sinf(T * 12), fx[0] = fx[1] = (beat % 2 ? 1.5f : -1.5f) * bounce;
+      else th[0] = th[1] = 1.5f;
+      eyes = beat % 2 ? EYES_HAPPY : -1;
+      break;
+    }
   }
   if (girl.yay) th[0] = th[1] = 2.6f + 0.25f * sinf(T * 18);
 
-  int cx = lroundf(girl.x), hy = lroundf(girl.y - hip), ty = hy - 8, ky = ty - 17;  // hip, torso and head top rows
+  int cx = lroundf(girl.x), hy = lroundf(girl.y - hip), ty = hy - 8;  // hip and torso top rows
+  int hx0 = cx + lroundf(hdx), ky = ty - 17 + lroundf(hdy);             // head
   shadow(cx, 7 * fmaxf(0.3f, 1 - (GROUND - girl.y) / 30));
-  for (int i = 0; i < 2; i++) {  // legs: trousers on top, boots below
+  for (int i = 0; i < 2 && legs == STAND; i++) {
     float s = i ? d : -d, lx = cx + s * 2, fx1 = lx + fx[i], fy1 = girl.y - 1 - fl[i];
-    float mx = (lx + fx1) / 2, my = (hy + fy1) / 2;
-    capsule(lx, hy, fx1, fy1, 1.6f, INK);
-    capsule(lx, hy, mx, my, 0.7f, PANTS), capsule(mx, my, fx1, fy1, 0.8f, BELT);
+    leg(lx, hy, fx1, fy1);
     disc(fx1 + d * 0.5f, fy1 + 0.2f, 0.8f, BELT);
   }
   blit(TORSO, TORSO_H, TORSO_AX, cx, ty, d);
-  int eyes = girl.happy > 0 ? EYES_HAPPY : fmodf(T, 3.1f) < 0.14f ? EYES_BLINK : EYES_OPEN;
-  blit(HEAD[eyes], HEAD_H, HEAD_AX, cx, ky, d);
-
-  if (girl.blow > 0.2f) {  // two locks at the nape fly back when running/jumping; in a jump they rise/fall with vertical speed
-    float rx[2], ry[2], tx[2], ty2[2], len = 3 * girl.blow;  // root, tip
-    for (int i = 0; i < 2; i++) {
-      float a = (girl.st == JUMP ? clampf(-girl.vy / 120, -0.9f, 1.0f) : 0.15f) + 0.25f * sinf(T * 14 + i * 2.1f);
-      rx[i] = cx + d * (1.5f - HEAD_AX), ry[i] = ky + 7.5f + i * 4;
-      tx[i] = rx[i] - d * len * cosf(a), ty2[i] = ry[i] + len * sinf(a);
-      capsule(rx[i], ry[i], tx[i], ty2[i], 1.0f, INK);
+  for (int i = 0; i < 2 && legs != STAND; i++) {  // sitting: legs in front of the tunic
+    float o = i ? 0 : -1.2f, fy = girl.y - 1;
+    if (legs == KNEES) {
+      float kx = cx + d * (5 + o), kyy = hy - 3.5f;
+      leg(cx + d * o, hy, kx, kyy), leg(kx, kyy, cx + d * (8 + o), fy);
+    } else {
+      fy -= fmaxf(0, i ? tap : -tap);
+      leg(cx + d * o, hy + 1, cx + d * (5 + o), girl.y - 1.5f), leg(cx + d * (5 + o), girl.y - 1.5f, cx + d * (9 + o), fy);
     }
-    for (int i = 0; i < 2; i++) capsule(rx[i] + d * 1.5f, ry[i], tx[i], ty2[i], 0.5f, HAIR);
+    disc(cx + d * ((legs == KNEES ? 8 : 9) + o + 0.5f), fy + 0.2f, 0.8f, BELT);
   }
-
+  if (eyes < 0) eyes = girl.happy > 0 ? EYES_HAPPY : fmodf(T, 3.1f) < 0.14f ? EYES_BLINK : EYES_OPEN;
+  blit(HEAD[eyes], HEAD_H, HEAD_AX, hx0, ky, d);
+  hairLocks(hx0, ky, d, st == JUMP ? clampf(-girl.vy / 120, -0.9f, 1.0f) : -0.15f);
   for (int i = 0; i < 2; i++) {  // arms after the head: stay in front of the hair when raised
     float s = i ? d : -d, ax = cx + s * 4.5f, ay = ty + 2.5f;
     float ex = ax + s * 6 * sinf(th[i]), ey = ay + 6 * cosf(th[i]), mx = ax + (ex - ax) * 0.8f, my = ay + (ey - ay) * 0.8f;
     capsule(ax, ay, ex, ey, 1.5f, INK), disc(ex, ey, 1.6f, INK);
     capsule(ax, ay, mx, my, 0.8f, TUNIC), disc(ex, ey, 0.8f, SKIN);  // long-sleeved tunic, hand
     if (i) hdX = ex, hdY = ey - 1;
+    if (i && apple >= 0) art(APPLE_ART[apple], 5, lroundf(ex) - 2, lroundf(ey) - 4, d);
   }
   shX = cx - d * 5, shY = ty + 5;
+
+  if (st == SLEEP && girl.peek <= 0)  // z z z floating up
+    for (int k = 0; k < 3; k++) {
+      float p = fmodf(T * 0.3f + k / 3.0f, 1);
+      art(ZZ, 4, lroundf(hx0 + d * (4 + 9 * p)) - 2, lroundf(ky + 1 - 11 * p), 1, nightW > 0.5f ? CREAM : INK);
+    }
+  if (st == PURR)  // little hearts rising
+    for (int k = 0; k < 3; k++) {
+      float p = fmodf(girl.t * 0.9f + k / 3.0f, 1);
+      art(LOVE, 4, lroundf(hx0 + d * (2 + 4 * k) + sinf(T * 4 + k)) - 2, lroundf(ky + 2 - 9 * p));
+    }
+  if (st == DANCE) notes(girl.x, GROUND - 24, 0);
+  if (st == KO && !air)  // stars around her head
+    for (int k = 0; k < 2; k++) {
+      float a = T * 6 + k * 3.1416f;
+      art(TWINKLE, 3, lroundf(hx0 - d * 1 + 7 * cosf(a)) - 1, lroundf(ky + 2 + 1.5f * sinf(a)) - 1, 1, EARRING);
+    }
 }
 
 void attach() {  // pin Teto on the shoulder/hand to the girl's pose this frame
@@ -380,9 +763,9 @@ void attach() {  // pin Teto on the shoulder/hand to the girl's pose this frame
   }
 }
 
-void drawTeto() {
+void drawTeto(bool fly = false) {  // fly: clinging on in the glider's wind
   const int d = teto.dir;
-  bool run = teto.st == SCAMPER || teto.st == LEAP || (teto.st == HAND && teto.t > 0.35f);
+  bool run = fly || teto.st == SCAMPER || teto.st == LEAP || (teto.st == HAND && teto.t > 0.35f);
   const char *const *spr = run ? TRUN[teto.st == SCAMPER && (int(teto.phase / 3.1416f) & 1)] : TSIT;
   int h = run ? TRUN_H : TSIT_H, ax = run ? TRUN_AX : TSIT_AX, x = lroundf(teto.x), y = lroundf(teto.y);
   if (loose()) shadow(x, 3 * fmaxf(0.3f, 1 - (GROUND - teto.y) / 30));
@@ -390,12 +773,172 @@ void drawTeto() {
   float kx[5], ky[5];  // tail: raised, swaying, striped chain from the sprite's rear
   kx[0] = x + d * (0.5f - ax), ky[0] = y - h + (run ? 5.5f : 8.5f);
   for (int i = 1; i < 5; i++) {
-    float g = (run ? 0.35f : 1.0f) + 0.3f * i + (run ? 0.15f : 0.35f) * sinf(T * (run ? 12 : 4) - 0.7f * i);
+    float g = fly ? -0.1f + 0.2f * sinf(T * 16 - i) : (run ? 0.35f : 1.0f) + 0.3f * i + (run ? 0.15f : 0.35f) * sinf(T * (run ? 12 : 4) - 0.7f * i);
     kx[i] = kx[i - 1] - d * 1.5f * cosf(g), ky[i] = ky[i - 1] - 1.5f * sinf(g);
   }
   for (int i = 1; i < 5; i++) capsule(kx[i - 1], ky[i - 1], kx[i], ky[i], 1.5f - 0.1f * i, INK);
   for (int i = 1; i < 5; i++) capsule(kx[i - 1], ky[i - 1], kx[i], ky[i], 0.7f, i & 1 ? FUR : FUR2);
-  blit(spr, h, ax, x, y - h, d, fmodf(T + 1.3f, 3.7f) < 0.15f);
+  bool asleep = girl.st == SLEEP && teto.st == SHOULDER;
+  blit(spr, h, ax, x, y - h, d, asleep || fmodf(T + 1.3f, 3.7f) < 0.15f);
+}
+
+void drawVisitor() {
+  if (!vis.on) return;
+  int x = lroundf(vis.x), y = lroundf(vis.y + 2 * sinf(T * 3));
+  if (vis.kind == BUTTERFLY) art(FLY[sinf(T * 20) > 0], 5, x - 3, y - 2);
+  else {  // a glowing spore from the Sea of Corruption: pulsing halo, soft core
+    bool bright = sinf(T * 4) > 0;
+    for (int k = 0; k < 4; k++) px(x + (k == 0) - (k == 1), y + (k == 2) - (k == 3), bright ? SPORE : LEAF);
+    px(x, y, CREAM);
+  }
+}
+
+// For the runner (game.h): the girl is the hero, Teto rides on her shoulder. She is taller than the cat: the bird flies
+// higher, the view sits lower.
+auto &hero = girl;
+void drawHero() {
+  teto.st = SHOULDER;
+  drawGirl(), attach(), drawTeto();
+}
+const int BIRD_TOP = GROUND - 40, GAME_CAM = 15, SCROLL_Y = GROUND;
+const float HEAD_X0 = -9, HEAD_X1 = 7;
+#include "game.h"
+
+// ---- Travel: she flies the Mehve to the right, lying on it; Teto clings to her back. The valley scrolls under her in
+// layers, each slower the farther it is: far ridges, hills with windmills, the forest just below; clouds near and far,
+// wind streaks rushing past. She drifts up and down on the wind. ----
+float dist = 0, gy = 43, gv = 0, lift = 0;  // px flown (the forest layer); glider height, its speed; shake: a climb
+
+void travel(float secs) {  // secs: how long; 0 = while the music plays
+  tripLeft = secs;
+  if (rove) return;
+  pose(IDLE, 0);
+  rove = true, vis.on = false, awake = 0, bowl.on = false, gy = 43, gv = 0, lift = 0;
+  tgo(SHOULDER, 0);
+}
+
+void roveStep(float dt) {
+  dist += 30 * dt;
+  lift = fmaxf(0, lift - 14 * dt);
+  float to = 43 + 5 * sinf(T * 0.45f) + 2 * sinf(T * 1.15f) - lift;  // riding the air
+  gv += (5 * (to - gy) - 3 * gv) * dt;
+  gy += gv * dt;
+  if (!tunes && (tripLeft -= dt) <= 0) pose(IDLE, 1);
+}
+
+void drawGlider() {
+  const float gx = 40, a = clampf(-gv * 0.03f, -0.22f, 0.22f), ca = cosf(a), sa = sinf(a);  // nose up when climbing
+  auto W = [&](float lx, float ly, float &x, float &y) { x = gx + lx * ca + ly * sa, y = gy - lx * sa + ly * ca; };
+  auto bar = [&](float x0, float y0, float x1, float y1, float r, uint8_t c) {
+    float ax, ay, bx, by;
+    W(x0, y0, ax, ay), W(x1, y1, bx, by);
+    capsule(ax, ay, bx, by, r, c);
+  };
+  auto hull = [&](float x0, float y0, float x1, float y1, float r, uint8_t c) { bar(x0 * 1.4f, y0, x1 * 1.4f, y1, r, c); };
+  float flap = 0.6f * sinf(T * 2.2f);  // the wings flex a little
+  hull(-1, -1, -14, -6 - flap, 1.5f, INK), hull(-1, -1, -14, -6 - flap, 0.7f, HULL2);    // far wing, behind
+  hull(-12, 0, -15, -3, 1.0f, INK), hull(-12, 0, -15, -3, 0.4f, HULL);                   // tail fin
+  hull(-11, 0, 9, 0, 3.2f, INK), hull(-10, -0.3f, 8.5f, -0.3f, 2.3f, HULL), hull(-9, 1.4f, 7, 1.4f, 0.9f, HULL2);  // hull
+  float jx, jy;
+  W(9.3f * 1.4f, 0.6f, jx, jy), disc(jx, jy, 1.4f, JET);                                 // jet intake at the nose
+  // Nausicaa lying on top: legs back, body along the hull, arm to the handlebar, head up looking ahead.
+  bar(-4, -4, -12, -3.2f, 1.6f, INK), bar(-4, -4, -8, -3.6f, 0.7f, PANTS), bar(-8, -3.6f, -12, -3.2f, 0.8f, BELT);
+  bar(-4, -4.6f, 3, -5.6f, 2.3f, INK), bar(-4, -4.6f, 3, -5.6f, 1.5f, TUNIC), bar(-3.5f, -4.4f, -3.5f, -4.4f, 1.0f, BELT);
+  bar(5, -2, 6.5f, -8, 0.5f, INK);                                                         // handlebar
+  bar(3, -6, 6.5f, -8, 1.3f, INK), bar(3, -6, 5.5f, -7.4f, 0.7f, TUNIC);
+  float hx, hy;
+  W(6.5f, -8, hx, hy), disc(hx, hy, 0.8f, SKIN);
+  W(4.5f, -6.5f, hx, hy);
+  int eyes = girl.happy > 0 ? EYES_HAPPY : fmodf(T, 3.1f) < 0.14f ? EYES_BLINK : EYES_OPEN, ky = lroundf(hy) - 15;
+  blit(HEAD[eyes], HEAD_H, HEAD_AX, lroundf(hx), ky, 1);
+  hairLocks(hx, ky, 1, 0.1f);
+  W(-8, -5.5f, teto.x, teto.y);  // on her back
+  teto.dir = 1, drawTeto(true);
+  hull(1, 1, -16, 10 + flap, 2.4f, INK), hull(1, 0.8f, -15.6f, 9.8f + flap, 1.5f, HULL);  // near wing, in front
+  hull(-15.6f, 9.8f + flap, -17, 7 + flap, 1.0f, INK);                                   // its tip fin
+  if (tunes) notes(gx - 12, gy - 18, -18);
+}
+
+void drawRove() {
+  memcpy(fb, bgAir, sizeof fb);
+  sunMoon(46);
+  for (int k = 0; k < 2; k++)  // far clouds, slow
+    cloud(wrap(10 + k * 55 - dist * 0.05f - T * 1.5f, 120) - 20, 10 + k * 9, 0.8f - 0.2f * k);
+  for (int x = 0; x < N; x++) {  // far ridges, hills, the forest below: each layer scrolls slower the farther it is
+    float u = x + dist * 0.1f, v = x + dist * 0.35f, w = x + dist;
+    int far = 46 + 3 * sinf(u * 0.07f) + 2 * sinf(u * 0.19f + 1), hill = 57 + 3 * sinf(v * 0.1f + 2) + 1.5f * sinf(v * 0.25f);
+    int wood = 71 - 2.5f * fabsf(sinf(w * 0.28f)) - 1.5f * fabsf(sinf(w * 0.11f + 1));  // treetop bumps
+    for (int y = far; y < N; y++) fb[y * N + x] = y < hill ? HILL : y < wood ? HILL2 : y < wood + 2 ? GRASS2 : TREE;
+  }
+  for (int k = floorf(dist * 0.35f / 31) - 1, end = k + 5; k < end; k++) {  // windmills on the hills
+    float x = k * 31 + 12 * h01(k) - dist * 0.35f, v = x + dist * 0.35f;
+    float top = 57 + 3 * sinf(v * 0.1f + 2) + 1.5f * sinf(v * 0.25f);
+    capsule(x, top, x, top - 7, 0.5f, MILL), blades(x, top - 7, 4, 1.8f + h01(k + 5), MILL);
+  }
+  drawWind(2.5f);
+  drawGlider();
+  float cx = wrap(90 - dist * 1.4f, 260) - 30;  // now and then a big cloud rushes by right in front
+  cloud(cx, 64, 1.6f);
+}
+
+// ---- Events from the firmware ----
+
+// Device shaken: Teto leaps off her shoulder, she startles and jumps, tries to catch him for a few seconds.
+// Asleep: a startled hop, a yawn, back to sleep. Starving: angry, no play. Flying: a climb on the wind.
+void shake() {
+  if (game.on) return;
+  if (rove) {
+    lift = 14, girl.happy = 1.5f;
+    return;
+  }
+  if (girl.st == SLEEP) {
+    awake = 0, girl.peek = 0, leap(girl.x, 6, 0), girl.wake = true;
+    return;
+  }
+  if (pet::s.full < 10 && grounded()) {
+    awake = 0, pose(ANGRY, 1.2f);
+    girl.vy = -sqrtf(2 * G * 5), girl.vx = -girl.dir * 22;
+    return;
+  }
+  awake = 6, vis.on = false;
+  if (teto.st != LEAP) hop(roamX(), GROUND, 8 + 8 * rnd(), false);
+  if (grounded()) girl.yay = false, leap(girl.x, 5, 0);
+}
+
+// Message/button: the girl raises her arms and hops twice for joy (a sitting Teto hops too). Asleep: one eye opens.
+void cheer() {
+  if (game.on) return;
+  if (girl.st == SLEEP) {
+    girl.peek = 2;
+    return;
+  }
+  girl.happy = 2.5f;
+  if (rove) lift = fmaxf(lift, 6);
+  else if (grounded() && girl.st != EAT) pose(CROUCH, 0.15f), girl.hops = 2, girl.yay = true;
+  if (teto.st == PERCH) hop(teto.x, GROUND, 5, false);
+}
+
+// Pet events (nothing during the game): feed accepted (also wakes her), feed while full, petted, too tired to play.
+void eat() {
+  if (!game.on) pose(EAT, 3);
+}
+void refuse() {
+  if (!game.on) pose(REFUSE, 1);
+}
+void purr() {
+  if (!game.on) pose(PURR, 2);
+}
+void yawn() {
+  if (!game.on) pose(YAWN, 1.5f);
+}
+
+// Music screen on / off (the firmware calls this every frame): she takes off on the glider; asleep, she sleeps on.
+void music(bool on) {
+  if (game.on) on = false;
+  if (on == tunes) return;
+  tunes = on;
+  if (on && girl.st != SLEEP && mood != pet::SLEEP) travel(0);
+  else if (!on && rove && tripLeft <= 0) pose(IDLE, 1);
 }
 
 void init() {
@@ -403,6 +946,7 @@ void init() {
     for (int x = 0; x < N; x++) {
       float far = 42 + 3 * sinf(x * 0.09f) + 2 * sinf(x * 0.23f + 1), near = 49 + 2 * sinf(x * 0.14f + 2) + 1.5f * sinf(x * 0.31f);
       uint8_t c = skyAt(x, y);
+      bgAir[y * N + x] = c;
       if (y >= far) c = HILL;
       if (y >= near) c = HILL2;
       if (y >= GROUND) c = y < GROUND + 3 || (y < GROUND + 5 && bayer(x, y) > 0.5f) ? GRASS : GRASS2;
@@ -412,26 +956,27 @@ void init() {
     for (int y = m[1] + 1; fb[y * N + (int)m[0]] <= SKY3; y++) px(m[0], y, m[4]);
   memcpy(bg, fb, sizeof bg);
   for (int i = 0; i < NW; i++) gust(i, N * rnd());
+  for (int i = 0; i < NS; i++) sx[i] = 10 + rnd() * 60, sy[i] = 3 + rnd() * 30, sp[i] = rnd() * 6.28f;
 }
 
 void step(float dt) {
-  update(dt);
-  memcpy(fb, bg, sizeof fb);
-  for (auto &c : CLOUDS) {  // drift left with the wind, wrap from left edge to right
-    float x = fmodf(c[0] - T * c[3], 110);
-    cloud(x < 0 ? x + 95 : x - 15, c[1], c[2]);
+  if (game.on) {
+    gameStep(dt);
+    gameDraw();
+    return;
   }
-  for (auto &g : gusts)
-    for (int k = 0; k < g.len; k++) {
-      int x = g.x + k, y = g.y;
-      if ((unsigned)x < N && fb[y * N + x] <= CLOUD2) px(x, y, WIND);
-    }
-  blades();
-  grassTips();
+  update(dt);
+  if (rove) return drawRove();
+  drawSky();
+  if (bowl.on) art(PLATE, 3, lroundf(bowl.x) - 4, GROUND - 3);
   drawGirl();
   attach();
   drawTeto();
+  drawVisitor();
 }
 
 }  // namespace nausicaa
-namespace scene = nausicaa;  // firmware.ino talks to whichever scene is included through this name
+#ifndef SCENE_PICK
+namespace scene = nausicaa;  // firmware.ino talks to whichever scene is included through this name (pets.h: to all)
+#endif
+#define SCENE_PET            // firmware.ino: this scene has the pet features (pet.h, game, day/night)

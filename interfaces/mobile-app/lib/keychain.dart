@@ -106,6 +106,13 @@ class Keychain extends ChangeNotifier {
   // One message to the board: plain text goes to the bubble, '#...' is a command. false: not connected.
   Future<bool> send(String s) async => await _link.invokeMethod<bool>('send', s) ?? false;
 
+  // A setting: shown at once, the board confirms with its `settings` line.
+  Future<bool> set(String cmd, Settings next) {
+    settings = next;
+    notifyListeners();
+    return send('#set $cmd');
+  }
+
   Future<bool> say(String text) async {
     final sent = await send(text);
     if (sent) log(Kind.sent, Icons.north_east, text);
