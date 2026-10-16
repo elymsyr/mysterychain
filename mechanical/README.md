@@ -2,7 +2,7 @@
 
 Round 3D-printed case, Ø42.2 × 13.7 mm, with a keyring lug. Three printed parts that snap together, no screws, plus a tethered TPU USB-C plug. Everything assembles from the back.
 
-**Status:** case v7 (battery beside the XIAO, reaching into a full-depth lug; flat back cover), not printed yet. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
+**Status:** case v7 (battery beside the XIAO, reaching into a full-depth lug; flat back cover). First PLA test print 2026-10-16; its fit fixes are in (v7.1, see version history), reprint pending. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
 
 | Front | Back | Internals (transparent) |
 | --- | --- | --- |
@@ -18,8 +18,8 @@ All dimensions below come from [`pet_case.step.py`](pet_case.step.py) (build123d
 | `pet_case.step` | Assembly STEP: printed parts + electronics + keep-out zones. Import into Onshape or any CAD. |
 | `usb_plug.step.py` / `usb_plug.step` | Tethered TPU USB-C plug (splash protection). Strap anchors in the old switch recess + slot (the wall slide switch is gone since v6: daily on/off is the button in firmware, the battery switch SW2 sits under the back cover since v7). |
 | `print_parts.py` | Exports the print files |
-| `pet_case_drawing.pdf` | 2D technical drawings, A3 2:1, first-angle: assembly + parts list, front housing, midframe, back cover. **Still v6:** `pet_case.dxf.py` is not ported to v7 yet and fails on the v7 source. |
-| `pet_case.dxf.py` / `pet_case.dxf` | Drawing source (hidden-line projections of the model, ezdxf) and its DXF export with editable dimensions (v6) |
+| `pet_case_drawing.pdf` | 2D technical drawings, A3 2:1, first-angle: assembly + parts list, front housing, midframe, back cover. Current (v7.1). |
+| `pet_case.dxf.py` / `pet_case.dxf` | Drawing source (hidden-line projections of the model, ezdxf) and its DXF export with editable dimensions |
 | `print/` | `.3mf` and `.stl` per part, already in print orientation |
 | `parts/` | Vendor STEP models: Seeed XIAO nRF52840 Sense, Teyleten GC9A01 (`_nopins` = same model with the 7-pin header removed; the case uses this one) |
 | `archive/pet_case_v2.py`, `_v4.py`, `_v5.py`, `_v6.py` | Earlier designs, kept for reference (v4 = header pins kept, 15.23 deep lug; v5 = 1.2 bezel, slide switch; v6 = battery stacked behind the XIAO) |
@@ -60,14 +60,14 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 
 - Body and keyring lug in one piece, same thickness: keyring pull goes into the body, not into the PCB or the cover.
 - **Front lip** 0.4 with a Ø34.6 window: shows the active area (Ø32.05) and ~1.3 of the black ring, and hides the glass edge (Ø35.2), the gap around it and the LCD neck/FPC. The flat front face carries the screen protector.
-- Display seat: PCB step Ø38.6, LCD recess Ø36.0, clearance for the LCD neck/FPC bend and the header's front solder joints (0.71 wall above them).
+- Display seat: PCB step Ø38.6, LCD recess Ø36.0, clearance for the LCD neck/FPC bend (1.0 on every side, `NECK_GROW`) and the header's front solder joints (0.71 wall above them).
 - **Lug cavity** 23.36 wide, open to the back, up to y = 38.08: display tab, battery and motor. Its front skin is 2.18 thick.
 - **Motor ring** on the lug front skin past the tab tip: Ø10.5 inside, 1.0 high, 5 mm wire gap toward −Y.
 - **USB-C pocket** 13 × 7, down to the receptacle face, so the plug overmold (USB-IF max 12.35 × 6.5) seats fully. 1.1 of wall under it at the back face.
 - **USB plug anchor (+X):** the old switch opening, a 3.4 × 1.4 slot with a 6.5 × 3.6 × 0.9 recess outside. The plug's pad fills the recess and its barb snaps behind the wall.
 - **Button (−X):** 3.6 × 2.0 hole and a Ø6.4 finger dimple; the plunger sticks out ~0.3 from the dimple floor but stays ~0.3 below the outer surface. It's also the power button (hold ~1 s = on), so a flat surface in a pocket can't hold it down.
 - **Keyring slot** 10 × 3, oval, through the lug end. Bridge 2.4, web 1.2.
-- Hook groove on the inner wall (R20.0, z = 4.0–6.2), plus a 0.7 groove on each lug side wall (y = 31.8–36.4).
+- Hook groove on the inner wall (R20.0, z = 4.6–6.8; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.8–36.4).
 - Pry notch at 230° on the back edge, 5 mm wide.
 
 **Midframe** (38.2 × 55.9 × 8.8)
@@ -187,10 +187,12 @@ Uses the [text-to-cad](https://github.com/earthtojake/text-to-cad) `cad` skill s
 C=~/.claude/plugins/cache/text-to-cad/cad/0.4.19/skills/cad/scripts
 ~/.venvs/cad/bin/python $C/gen pet_case.step.py usb_plug.step.py --write   # STEP
 ~/.venvs/cad/bin/python print_parts.py                     # STL + 3MF (all four parts)
+~/.venvs/cad/bin/python ~/.claude/plugins/cache/text-to-cad/cad/0.4.19/skills/dxf/scripts/gen pet_case.dxf.py --write   # DXF
+~/.venvs/cad/bin/python pet_case.dxf.py                    # drawing PDF
 ~/.venvs/cad/bin/python $C/inspect interfere pet_case.step --tolerance 0.0001 --format text
 ```
 
-Expected interference: battery inside its safe zone, TPU plug inside the USB overmold keep-out (they never coexist), TPU plug press fit in the housing (~6.6 mm³), display tab resting on the lug floor (~0 mm³).
+Expected interference: battery inside its safe zone, TPU plug inside the USB overmold keep-out (they never coexist), TPU plug press fit in the housing (~6.6 mm³), display tab resting on the lug floor (~0 mm³), hook catches preloading the housing groove edge (~0.1 mm³).
 
 ## Version history
 
@@ -203,3 +205,4 @@ Expected interference: battery inside its safe zone, TPU plug inside the USB ove
 | v5 | Display header removed (`gc9a01_teyleten_nopins.step`). Lug 15.23 → 8.43 deep. Tab-tip hooks moved beyond the tab tip. Cover wall fill flush with the inner wall. |
 | v6 | Bezel 1.2 → 0.4 front lip, window Ø33 → Ø34.6: only the black glass shows, glass edge and neck hidden. Body 19.19 → 18.24. Slide switch removed: its opening anchors the new tethered TPU USB plug, midframe switch backer dropped. Screen protector on the front face. |
 | v7 | Battery moved beside the XIAO, long side into the lug: thickness 18.24 → 13.74, length 54.4 → 65.8, same 402030. Lug full depth; flat back cover and midframe (lug plate keys them, key tabs dropped); cover posts dropped. Motor moved to the lug front skin. Hooks 0/180/225/315 → 20/160/230/310 + 2 lug side hooks (tab-tip hooks dropped). Midframe and cover print without supports. Reset hole in the midframe; Q2 gets its own spot beside D7. Battery switch back (EG1390, actuator through a slot in midframe + cover, under tape). |
+| v7.1 | PLA test-fit fixes: hook groove 0.6 toward the front (z 4.0–6.2 → 4.6–6.8) so the hooks preload the cover (it sat 0.52 loose); LCD neck/FPC pocket 1.0 larger all round (was +0.35). Drawings ported to v7. |

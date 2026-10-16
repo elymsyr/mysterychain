@@ -28,7 +28,8 @@ import math
 from pathlib import Path
 
 from build123d import (
-    Align, Box, Compound, Cone, Cylinder, Location, Plane, Polygon, Pos, RectangleRounded, Rot, extrude,
+    Align, Box, Compound, Cone, Cylinder, Kind, Location, Plane, Polygon, Pos, RectangleRounded, Rot, extrude,
+    offset,
 )
 from cadgen import srgb
 from cadgen.assembly import AssemblyHelper
@@ -53,6 +54,7 @@ DISP_REAR = 3.25         # display PCB back -> XIAO = 3.0 net (XIAO STEP bottom 
 WIN_D = 34.6             # window: active area Ø32.05 + black ring, lip covers the glass edge (Ø35.2) by 0.3
 TAB_REAR = 2.5           # behind the tab pads: header removed, solder/pin stubs <=1 + 30AWG wires bent flat
 SOLDER_HALF_X, SOLDER_Y, SOLDER_H = 8.52, (24.36, 26.14), 1.164   # front-side solder joints
+NECK_GROW = 1.0          # extra on every side of the LCD neck/FPC pocket (PLA test print: 0.35 was too tight)
 
 # XIAO nRF52840 Sense (measured from the official Seeed STEP)
 XIAO_STEP = HERE / "parts" / "xiao_nrf52840_sense.step"
@@ -131,7 +133,9 @@ USB_POCKET_W, USB_POCKET_H = 13.0, 7.0
 # snap hooks (back cover <-> front housing)
 CATCH_Z0 = COVER_T + 3.7         # catch tip (45° retention ramp, removable)
 CATCH_Z1 = CATCH_Z0 + 1.2        # arm tip (lead-in ramp)
-GROOVE = (CATCH_Z0 - 0.9, CATCH_Z1 + 0.1)
+# groove edge sits 0.08 above where the retention ramp crosses the wall (r=RI, cover seated): the hooks
+# preload the cover inward. Old (CATCH_Z0 - 0.9) left 0.52 of axial play (PLA test print: cover loose, sat low).
+GROOVE = (CATCH_Z0 - 0.3, CATCH_Z1 + 0.7)
 HOOK_W = 4.0
 HOOK_ANGLES = (20, 160, 230, 310)   # 0/180 = plug slot/button height, 270 = USB plug, 315 = passives, 53..127 = lug
 LUG_HOOK_Y = LUG_IN_TOP - 4.0       # 2 more on the lug side walls, beside the battery
@@ -170,8 +174,9 @@ def make_front_housing():
         Pos(0, LCD_DY, H - 0.2) * Cone(WIN_D / 2, WIN_D / 2 + 0.3, 0.3, align=MIN),  # window chamfer
         zcyl(0, LCD_DY, LCD_D / 2 + 0.2, z(D_PCB_FRONT), z(BEZEL_T)),         # LCD recess
         # LCD neck + FPC bend (on the tab, PCB front side)
-        extrude(Polygon((-8.85, 14.5), (8.85, 14.5), (8.85, 15.3), (6.95, 19.97), (6.95, 21.2),
-                        (-6.95, 21.2), (-6.95, 19.97), (-8.85, 15.3), align=None),
+        extrude(offset(Polygon((-8.85, 14.5), (8.85, 14.5), (8.85, 15.3), (6.95, 19.97), (6.95, 21.2),
+                               (-6.95, 21.2), (-6.95, 19.97), (-8.85, 15.3), align=None),
+                       NECK_GROW, kind=Kind.INTERSECTION),
                 z(BEZEL_T) - z(D_PCB_FRONT)).moved(Location((0, 0, z(D_PCB_FRONT)))),
         # header front-side solder joints
         zbox(-SOLDER_HALF_X - 0.4, SOLDER_HALF_X + 0.4, SOLDER_Y[0] - 0.4, SOLDER_Y[1] + 0.4,
