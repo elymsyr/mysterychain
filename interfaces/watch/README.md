@@ -4,7 +4,7 @@ One Arduino sketch for the keychain's round display: [`firmware/firmware.ino`](f
 
 | Scene header | What happens |
 | --- | --- |
-| [`cat.h`](firmware/cat.h) | Pixel cat on a night lawn. Shake: the yarn ball flies, the cat jumps and plays for 6 s. |
+| [`cat.h`](firmware/cat.h) | Pixel cat on a lawn. Shake: the yarn ball flies, the cat jumps and plays for 6 s. The cat is also a pet, see [Cat pet](#cat-pet). |
 | [`pavi.h`](firmware/pavi.h) | Pavi (Seven Havens) on a wall above the rooftops, under an aurora. Shake: her fairy darts off and she chases it. |
 | [`nausicaa.h`](firmware/nausicaa.h) | Nausicaa in a windy valley with Teto on her shoulder. Shake: Teto jumps off, she tries to catch him, then kneels and he climbs back. |
 | [`teto.h`](firmware/teto.h) | Teto in the Sea of Corruption playing with a glowing spore. Shake: the spore is flung, Teto chases it. |
@@ -19,6 +19,20 @@ Every scene behaves the same way (screens: [docs/mockups/device_screens.png](../
 - **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
+
+## Cat pet
+
+With `cat.h` the cat lives on its own: stats, moods, day and night, a runner game. Screens: [day and night](../../docs/mockups/pet_day_night.png), [animations](../../docs/mockups/pet_animations.png), [game](../../docs/mockups/pet_game.png). Design: [spec](../../docs/superpowers/specs/2026-10-15-pet-design.md).
+
+- **Stats** ([`pet.h`](firmware/pet.h)): fullness, happiness, energy, 0–100, kept on the board only to pick the animations (not shown anywhere). Fullness empties in 10 h (half as fast asleep), happiness in 16 h awake (twice as fast when starving), energy in 16 h awake and refills in 8 h of sleep. Messages and reactions +8 (once a minute), petting +5, 100 steps +1, a game up to +15 and −10 energy. The pet never dies.
+- **Mood**, first that holds: `sleep` (night window or energy < 10), `hungry` (< 25), `sad` (< 25), `tired` (< 25), `happy`. Asleep: curled up with z's. Hungry: sits by an empty bowl. Sad: lies down. Tired: yawns. Happy: now and then a butterfly (day) or a mouse (night) comes by and the cat pounces on it.
+- **Button:** tap = clock + cheer (after 300 ms); double tap = feed (eats, or shakes its head when fullness > 90); hold until the 1 s buzz and release = runner game; hold 3 s = off.
+- **Runner game:** tap = jump over a flower pot, hold = high jump over a fence, stay down under birds (from 20 points). Score and best in the bubble; a new best buzzes 3 times. After a game over a press restarts, 10 s idle or a 3 s hold leaves (no power-off inside the game). Not with energy < 15.
+- **Petting:** double tap on the case (IMU tap engine): hearts and a soft purr buzz. A shake waits 300 ms so a double tap isn't taken as a shake.
+- **Steps:** the IMU's hardware pedometer; today's count resets at local midnight. Off = no counting.
+- **Day and night:** sky, grass, sun and moon follow the clock (dawn 06–08, day, sunset 18–20, night). No clock yet: night look.
+- **Night window** (default 23–07): the pet sleeps and the motor is quiet, except for find.
+- **Saved** in the internal flash (`/pet`, LittleFS) every 10 min and on feed, settings, a new best and power-off. Time spent off counts as sleep (up to 48 h) once the phone sends the time.
 
 ## Flash
 
@@ -41,6 +55,14 @@ Tunables at the top of `firmware.ino`:
 | `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
 | `CLOCK_MS` | 3000 | How long a button tap shows the time |
 | `FIND_MS` | 60000 | Find stops by itself after this long |
+| `GAME_HOLD_MS` | 1000 | Cat: hold and release after this long = game |
+| `TAP_WAIT_MS` | 300 | Cat: a tap waits this long for a second one (double = feed) |
+| `SHAKE_WAIT_MS` | 300 | Cat: a shake is decided this late; a case double tap inside it is petting |
+| `TAP_GUARD_MS` | 500 | Cat: case taps this soon after a button edge are ignored |
+| `TAP_THS` | 3 | Cat: IMU tap threshold, × 0.5 g. Check through the printed case |
+| `SAVE_S` | 600 | Cat: stats saved this often |
+
+Stat rates and gains are at the top of [`pet.h`](firmware/pet.h), game physics at the top of [`game.h`](firmware/game.h).
 
 ## Protocol
 
@@ -52,6 +74,12 @@ Plain UTF-8 text over Nordic UART, one message per write (MTU 247). A message th
 | `#time <unix s> <utc offset min>` | Set the clock. The app sends it on every connect. |
 | `#find` / `#find 0` | Start / stop find |
 | `#heart` | Three pink hearts in the bubble, buzz twice, cheer |
+| `#feed` | Cat: feed (answers `fed` or `full`) |
+| `#stats` | Cat: send `stats` now |
+| `#set vib 0\|1` | Cat: motor off / on (find always buzzes) |
+| `#set shake <g>` | Cat: shake threshold, 0.3–1.0 |
+| `#set night <from h> <to h>` | Cat: night window (sleep + quiet); `from == to` = none |
+| `#set name <text>` | Cat: pet name, up to 12 characters |
 
 | Keychain → phone | When |
 | --- | --- |
@@ -59,6 +87,10 @@ Plain UTF-8 text over Nordic UART, one message per write (MTU 247). A message th
 | `shake N (x.xx g)` | Shake detected |
 | `found` | Button pressed during find |
 | `find timeout` | Find stopped by itself after `FIND_MS` |
+| `stats <steps> <mood>` | Cat: after `#time`, on `#stats`, after a feed, and once a minute if a value changed |
+| `settings vib=<0\|1> shake=<g> night=<from>-<to> name=<text>` | Cat: after `#time` and every `#set` |
+| `fed` / `full` | Cat: answer to a feed (button or app) |
+| `game <score> best <best>` | Cat: game over |
 
 ## Scene interface
 
@@ -76,6 +108,12 @@ Each scene header (`cat.h`, `pavi.h`, `nausicaa.h`, `teto.h`) is plain C++ with 
 | `cheer()` | React to a message or button press |
 
 To add a scene, put its header in `firmware/` with the same interface and the `namespace scene = …;` line, and include it from `firmware.ino`. The sketch adds one palette entry after the scene's own (`HEART`, index `NCOL`) for the pink hearts.
+
+A scene that ends with `#define SCENE_PET` (only `cat.h` today) turns on the pet code in the sketch and also exposes: `PAL` writable plus `tint(minuteOfDay)`, `setMood()`, `eat()`, `refuse()`, `purr()`, `yawn()`, and the game (`game`, `gameStart()`, `gameInput(held)`, `gameStop()`, `gameLabel()`). Stats live in [`pet.h`](firmware/pet.h); the runner in [`game.h`](firmware/game.h), included by `cat.h`. PC check for both:
+
+```bash
+g++ -std=c++17 -I firmware test/pet_test.cpp -o /tmp/pet_test && /tmp/pet_test
+```
 
 ## Rules for new animations
 

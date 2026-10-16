@@ -1,34 +1,94 @@
 // Cat scene: draws into an 80x80 color-indexed buffer (fb), scaled 3x on screen.
 // No Arduino dependency: also compiles on a PC for frame-by-frame testing.
+// The cat is a pet (pet.h): its mood picks what it does, the sky follows the clock (tint), and it has a runner game (game.h).
 #pragma once
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include "pet.h"
 
 namespace kitty {
 
 const int N = 80, GROUND = 58;  // logical resolution, ground row (paws stand here)
 const float G = 260;            // gravity, px/s²
 
-enum : uint8_t { SKY0, SKY1, SKY2, SKY3, GRASS, GRASS2, STAR, MOON, INK, FUR, FUR2, CREAM, PINK, YARN, YARN2, SHADOW, NCOL };
-const uint8_t PAL[NCOL][3] = {
+enum : uint8_t { SKY0, SKY1, SKY2, SKY3, GRASS, GRASS2, STAR, MOON, INK, FUR, FUR2, CREAM, PINK, YARN, YARN2, SHADOW,
+                 SUN, GREY, CLAY, NCOL };
+uint8_t PAL[NCOL][3] = {  // night look; tint() rewrites the sky, grass, star, moon, shadow and sun entries
     {14, 16, 44},   {28, 26, 78},   {58, 42, 104},  {104, 60, 120},  // sky, top to horizon
     {70, 150, 70},  {38, 96, 50},   {255, 240, 180}, {250, 230, 160},  // grass, dark grass, star, moon
     {30, 18, 22},   {255, 150, 40}, {200, 95, 25},  {255, 236, 210}, {255, 140, 160},  // cat
     {80, 140, 255}, {40, 70, 200},  {26, 70, 40},   // yarn ball, shadow
+    {255, 214, 90}, {178, 176, 186}, {196, 98, 60},  // sun, mouse/bird grey, flower pot clay
 };
+
+// ---- Time of day (K6): the palette indices stay, their RGB follows the clock ----
+const uint8_t TINTED[] = {SKY0, SKY1, SKY2, SKY3, GRASS, GRASS2, STAR, MOON, SHADOW, SUN};
+const int NT = sizeof TINTED;
+enum { NIGHT, DAWN, DAY, DUSK };
+const uint8_t LOOK[4][NT][3] = {
+    {{14, 16, 44}, {28, 26, 78}, {58, 42, 104}, {104, 60, 120}, {70, 150, 70}, {38, 96, 50},
+     {255, 240, 180}, {250, 230, 160}, {26, 70, 40}, {255, 214, 90}},
+    {{70, 80, 150}, {150, 110, 165}, {235, 140, 140}, {255, 185, 130}, {84, 150, 72}, {46, 100, 56},
+     {255, 240, 200}, {250, 235, 200}, {34, 80, 46}, {255, 240, 170}},
+    {{74, 144, 226}, {104, 170, 236}, {142, 196, 244}, {186, 222, 250}, {96, 186, 80}, {54, 128, 62},
+     {255, 240, 200}, {240, 240, 240}, {44, 110, 52}, {255, 236, 140}},
+    {{44, 46, 112}, {130, 66, 128}, {226, 98, 92}, {255, 158, 84}, {72, 132, 62}, {40, 88, 48},
+     {255, 240, 190}, {250, 225, 170}, {30, 72, 42}, {255, 226, 150}},
+};
+// Keyframes (minute of day, look); blended linearly in between.
+const struct { int16_t min; uint8_t look; } KEY[] = {
+    {0, NIGHT}, {330, NIGHT}, {390, DAWN}, {450, DAWN}, {510, DAY}, {1050, DAY},
+    {1110, DUSK}, {1170, DUSK}, {1230, NIGHT}, {1440, NIGHT}};
+const int SUNRISE = 360, SUNSET = 1140;  // the sun is up 06:00-19:00, the moon the rest
+
+int clockMin = -1;   // minute of day, -1 = clock unknown (night look, moon at its old spot)
+float nightW = 1;    // 1 = full night (all stars), 0 = none
+
+void tint(int minuteOfDay) {
+  clockMin = minuteOfDay;
+  int a = NIGHT, b = NIGHT;
+  float f = 0;
+  if (clockMin >= 0) {
+    int i = 0;
+    while (KEY[i + 1].min <= clockMin % 1440) i++;
+    a = KEY[i].look, b = KEY[i + 1].look, f = float(clockMin % 1440 - KEY[i].min) / (KEY[i + 1].min - KEY[i].min);
+  }
+  for (int k = 0; k < NT; k++)
+    for (int c = 0; c < 3; c++) PAL[TINTED[k]][c] = lroundf(LOOK[a][k][c] * (1 - f) + LOOK[b][k][c] * f);
+  nightW = (a == NIGHT ? 1 - f : 0) + (b == NIGHT ? f : 0);
+}
+bool sunUp() { return clockMin >= SUNRISE && clockMin < SUNSET; }
 
 // Head: K outline, O fur, W cream, P pink. Symmetric, no mirroring needed when turning.
 const int HW = 12, HH = 10;
-const char *const HEAD[3][HH] = {
-    {".K........K.", "KPK......KPK", "KPPK....KPPK", "KOOKKKKKKOOK", "KOOOOOOOOOOK",
-     "KOKWOOOOKWOK", "KOKKOOOOKKOK", "KOOOWPPWOOOK", ".KOWWWWWWOK.", "..KKKKKKKK.."},  // eyes open (with highlight)
-    {".K........K.", "KPK......KPK", "KPPK....KPPK", "KOOKKKKKKOOK", "KOOOOOOOOOOK",
-     "KOOOOOOOOOOK", "KOKKOOOOKKOK", "KOOOWPPWOOOK", ".KOWWWWWWOK.", "..KKKKKKKK.."},  // blink
-    {".K........K.", "KPK......KPK", "KPPK....KPPK", "KOOKKKKKKOOK", "KOOOOOOOOOOK",
-     "KOOKOOOOKOOK", "KOKOKOOKOKOK", "KOOOWPPWOOOK", ".KOWWPPWWOK.", "..KKKKKKKK.."},  // happy ^^, mouth open
+#define EARS ".K........K.", "KPK......KPK", "KPPK....KPPK", "KOOKKKKKKOOK"
+#define MOUTH "KOOOWPPWOOOK", ".KOWWWWWWOK.", "..KKKKKKKK.."
+const char *const HEAD[][HH] = {
+    {EARS, "KOOOOOOOOOOK", "KOKWOOOOKWOK", "KOKKOOOOKKOK", MOUTH},                  // eyes open (with highlight)
+    {EARS, "KOOOOOOOOOOK", "KOOOOOOOOOOK", "KOKKOOOOKKOK", MOUTH},                  // blink
+    {EARS, "KOOOOOOOOOOK", "KOOKOOOOKOOK", "KOKOKOOKOKOK", "KOOOWPPWOOOK", ".KOWWPPWWOK.", "..KKKKKKKK.."},  // happy ^^, mouth open
+    {EARS, "KOOOOOOOOOOK", "KOKKKOOKKKOK", "KOOKOOOOKOOK", MOUTH},                  // half-closed (bored)
+    {EARS, "KOOOOOOOOOOK", "KOKOKOOKOKOK", "KOOKOOOOKOOK", MOUTH},                  // closed (asleep)
+    {EARS, "KOOOOOOOOOOK", "KOKWOOOKOKOK", "KOKKOOOOKOOK", MOUTH},                  // one eye open (peek)
+    {EARS, "KOOOOOOOOOOK", "KOKOKOOKOKOK", "KOOKOOOOKOOK", "KOOOKKKKOOOK", ".KOWKPPKWOK.", "..KKKKKKKK.."},  // yawn
+    {EARS, "KOKOOOOOOKOK", "KOOKOOOOKOOK", "KOOKKOOKKOOK", MOUTH},                  // frown (angry)
+    {EARS, "KOKOKOOKOKOK", "KOOKOOOOKOOK", "KOKOKOOKOKOK", MOUTH},                  // x x (game over)
 };
-enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY };
+#undef EARS
+#undef MOUTH
+enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY, EYES_HALF, EYES_CLOSED, EYES_PEEK, EYES_YAWN, EYES_FROWN, EYES_DIZZY };
+
+// Small sprites: same letters as the head, plus Y grey, C clay, g/G grass, F dark fur, b/B yarn, # = the caller's color.
+const char *const BOWL_FULL[] = {"..F.F.F..", "KFFFFFFFK", "KBBBBBBBK", ".KBBBBBK.", "..KKKKK.."};
+const char *const BOWL_EMPTY[] = {".........", "KbbbbbbbK", "KBBBBBBBK", ".KBBBBBK.", "..KKKKK.."};
+const char *const ZZ[] = {"####", "..#.", ".#..", "####"};
+const char *const LOVE[] = {".P.P.", "PPPPP", ".PPP.", "..P.."};
+const char *const FLY[2][5] = {{"K.....K", ".K...K.", "KPK.KPK", "KPPKPPK", ".KK.KK."},   // butterfly, wings open
+                               {".K...K.", "..K.K..", ".KPKPK.", ".KPKPK.", "..K.K.."}};  // wings up
+const char *const RAT[2][4] = {{".....KP.", "K.KKKYYK", ".KYYYYKY", "..K..K.."},  // facing right, two run frames
+                                 {".....KP.", "K.KKKYYK", ".KYYYYKY", ".K..K..."}};
 
 uint8_t fb[N * N], bg[N * N];
 float T = 0, awake = 0;  // awake > 0: cat is in play mode (refilled by a shake)
@@ -41,6 +101,17 @@ float clampf(float v, float lo, float hi) { return fminf(fmaxf(v, lo), hi); }
 
 inline void px(int x, int y, uint8_t c) {
   if ((unsigned)x < N && (unsigned)y < N) fb[y * N + x] = c;
+}
+
+void art(const char *const *rows, int h, int x, int y, int flip = 1, uint8_t hash = INK) {
+  static const char K[] = "KOWPYCgGFbB#";
+  const uint8_t C[] = {INK, FUR, CREAM, PINK, GREY, CLAY, GRASS, GRASS2, FUR2, YARN, YARN2, hash};
+  int w = strlen(rows[0]);
+  for (int r = 0; r < h; r++)
+    for (int c = 0; c < w; c++) {
+      const char *k = strchr(K, rows[r][flip > 0 ? c : w - 1 - c]);
+      if (k && *k) px(x + c, y + r, C[k - K]);
+    }
 }
 
 // Paints pixels within r of a line segment (legs, tail; a disc if both ends match).
@@ -74,7 +145,7 @@ void shadow(float x, float w) {
   for (int i = -(int)(w * 0.6f); i <= (int)(w * 0.6f); i++) px(x + i, GROUND + 1, SHADOW);
 }
 
-// ---- Stars and background ----
+// ---- Stars, sun, moon and background ----
 const int NS = 16;
 uint8_t sx[NS], sy[NS];
 float sp[NS];
@@ -86,20 +157,73 @@ uint8_t skyAt(int x, int y) {  // gradient with 2x2 Bayer dithering
   return b + (v - b > B[(y & 1) * 2 + (x & 1)]);
 }
 
-// ---- Cat and yarn ball ----
-enum { IDLE, RUN, CROUCH, JUMP, LAND, BAT };
+void skyDisc(float cx, float cy, float r, uint8_t c, float cutX = 0, float cutY = 0, float cutR = 0) {  // only over sky
+  for (int y = floorf(cy - r); y <= cy + r; y++)
+    for (int x = floorf(cx - r); x <= cx + r; x++)
+      if ((unsigned)x < N && (unsigned)y < N && bg[y * N + x] <= SKY3 && hypotf(x + 0.5f - cx, y + 0.5f - cy) < r &&
+          (cutR == 0 || hypotf(x + 0.5f - cutX, y + 0.5f - cutY) > cutR))
+        fb[y * N + x] = c;
+}
+
+void drawSky() {
+  memcpy(fb, bg, sizeof fb);
+  float mx = 60, my = 17;  // moon at its old spot while the clock is unknown
+  bool moon = true;
+  if (clockMin >= 0) {  // sun or moon on an arc from left (rise) to right (set)
+    moon = !sunUp();
+    float p = moon ? float((clockMin - SUNSET + 1440) % 1440) / (1440 - SUNSET + SUNRISE) : float(clockMin - SUNRISE) / (SUNSET - SUNRISE);
+    mx = 12 + 56 * p, my = GROUND - 2 - 28 * sinf(3.1416f * p);
+  }
+  for (int i = 0; i < NS; i++)  // twinkling stars, fading in by count at dusk
+    if (i < NS * nightW && sinf(T * 1.7f + sp[i]) > -0.2f && !(moon && hypotf(sx[i] - mx, sy[i] - my) < 6))
+      px(sx[i], sy[i], STAR);
+  if (moon) skyDisc(mx, my, 4.6f, MOON, mx + 2.5f, my - 1.5f, 4.2f);  // crescent
+  else skyDisc(mx, my, 4.2f, SUN);
+}
+
+// ---- Cat, yarn ball, bowl and visitors ----
+enum { IDLE, RUN, CROUCH, JUMP, LAND, BAT, SLEEP, EAT, REFUSE, PURR, YAWN, BORED, HUNGRY, ANGRY, KO };
 struct {
-  float x = 26, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0;
+  float x = 26, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0, peek = 0;
   int dir = 1, st = IDLE, hops = 0;
-  bool kicked = false;
+  bool kicked = false, wake = false;  // wake: yawn after this landing (startled out of sleep)
 } cat;
 struct {
   float x = 56, y = GROUND - 3, vx = 0, vy = 0, rot = 0;
 } ball;
+struct {
+  float x = 0;
+  bool on = false, food = false;
+} bowl;
+enum { BUTTERFLY, MOUSE };
+struct {
+  float x = 0, y = 0, vx = 0, vy = 0, t = 0, home = 0;
+  int kind = BUTTERFLY;
+  bool on = false, flee = false;
+} vis;
 
-void go(int st, float dur) { cat.st = st, cat.t = 0, cat.dur = dur, cat.kicked = false; }
-int side() { return ball.x >= cat.x ? 1 : -1; }
+pet::Mood mood = pet::HAPPY;
+float visitT = 150, yawnT = 0;  // s until the next visitor / tired yawn
+
+void setMood(pet::Mood m) { mood = m; }
+
+void go(int st, float dur) {
+  cat.st = st, cat.t = 0, cat.dur = dur, cat.kicked = false;
+  if (st != EAT && st != HUNGRY) bowl.on = false;
+}
+void pose(int st, float dur) {  // a ground state from wherever the cat is
+  cat.y = GROUND, cat.vx = cat.vy = 0, cat.hops = 0, cat.wake = false, cat.peek = 0;
+  go(st, dur);
+}
+bool grounded() { return cat.st != CROUCH && cat.st != JUMP && cat.st != LAND && cat.st != BAT && cat.st != ANGRY && cat.st != KO; }
+bool chasing() { return vis.on && !vis.flee; }
+float target() { return chasing() ? vis.x : ball.x; }
+int side() { return target() >= cat.x ? 1 : -1; }
 void kick(float vx, float vy) { ball.vx = vx, ball.vy = vy, cat.happy = 1.2f; }
+void showBowl(bool food) {  // in front of the cat, on the side toward the middle
+  cat.dir = cat.x < N / 2 ? 1 : -1;
+  bowl.x = cat.x + cat.dir * 13, bowl.on = true, bowl.food = food;
+}
 
 void leap(float xt, float h, int hops) {  // to xt, h high; hops = how many more hops after
   xt = clampf(xt, 16, 64);
@@ -117,21 +241,25 @@ void think() {  // idle wait is over: pick the next game
   else go(RUN, 0);
 }
 
-// Device shaken: the yarn flies, the cat startles and jumps, plays for a few seconds.
-void shake() {
-  awake = 6;
-  kick((rnd() < 0.5f ? -1 : 1) * (40 + 60 * rnd()), -(90 + 80 * rnd()));
-  if (cat.st == IDLE || cat.st == RUN) leap(cat.x, 10, 0);
+// A butterfly (day) or a mouse (night) comes in, waits near the cat; the cat stalks and pounces.
+void visit() {
+  if (vis.on) return;
+  vis.on = true, vis.flee = false, vis.t = 0;
+  vis.kind = sunUp() ? BUTTERFLY : MOUSE;
+  int open = cat.x < N / 2 ? 1 : -1;  // the roomier side of the cat
+  vis.x = open > 0 ? 84 : -4;
+  vis.home = clampf(cat.x + open * (24 + 10 * rnd()), 18, 62);
+  vis.y = vis.kind == BUTTERFLY ? GROUND - 18 : GROUND - 1;
+}
+void flee() {
+  vis.flee = true;
+  vis.vx = (vis.x >= cat.x ? 1 : -1) * 70, vis.vy = vis.kind == BUTTERFLY ? -30 : 0;
 }
 
-// Message/button: the cat hops twice in place for joy.
-void cheer() {
-  cat.happy = 2.5f;
-  if (cat.st == IDLE || cat.st == RUN) cat.hops = 2, go(CROUCH, 0.15f);
-}
+void idleDone() { go(IDLE, (0.6f + 1.2f * rnd()) * (mood == pet::TIRED ? 2 : 1)); }  // tired: plays half as often
 
 void update(float dt) {
-  T += dt, cat.t += dt, cat.happy -= dt, awake -= dt;
+  T += dt, cat.t += dt, cat.happy -= dt, cat.peek -= dt, awake -= dt, yawnT -= dt;
 
   ball.vy += G * dt, ball.x += ball.vx * dt, ball.y += ball.vy * dt;
   if (ball.y >= GROUND - 3) {
@@ -143,18 +271,40 @@ void update(float dt) {
   if (ball.x < 8 || ball.x > 72) ball.x = clampf(ball.x, 8, 72), ball.vx *= -0.6f;  // bounce off the screen edge
   ball.rot += ball.vx * dt / 3;
 
+  if (vis.on) {
+    vis.t += dt;
+    if (vis.flee) {
+      vis.x += vis.vx * dt, vis.y += vis.vy * dt;
+      if (vis.x < -10 || vis.x > N + 10 || vis.y < -10) vis.on = false;
+    } else {
+      float sp = (vis.kind == BUTTERFLY ? 25 : 40) * dt;
+      vis.x += clampf(vis.home - vis.x, -sp, sp);
+      if (vis.t > 12) flee();  // the cat never came
+    }
+  }
+  bool rest = ball.vx == 0 && ball.vy == 0;
+  if (mood == pet::HAPPY && cat.st == IDLE && awake <= 0 && rest && !vis.on && (visitT -= dt) <= 0)
+    visit(), visitT = 120 + 180 * rnd();
+
   switch (cat.st) {
     case IDLE:
-      if (fabsf(ball.x - cat.x) > 4) cat.dir = side();
-      if (awake > 0 && cat.t > cat.dur && ball.vx == 0 && ball.vy == 0) think();  // stays put unless shaken
+      if (fabsf(target() - cat.x) > 4) cat.dir = side();
+      if (cat.t <= cat.dur || !rest) break;  // stays put unless shaken, or the mood says otherwise
+      if (chasing()) {
+        if (fabsf(vis.home - vis.x) < 1) go(RUN, 0);
+      } else if (awake > 0) think();
+      else if (mood == pet::SLEEP) go(SLEEP, 0);
+      else if (mood == pet::HUNGRY) showBowl(false), go(HUNGRY, 0);
+      else if (mood == pet::SAD) go(BORED, 0);
+      else if (mood == pet::TIRED && yawnT <= 0) yawnT = 30, go(YAWN, 1.5f);
       break;
     case RUN: {
       int s = side();
-      float tx = clampf(ball.x - s * 12, 16, 64), d = tx - cat.x;
+      float tx = clampf(target() - s * (chasing() ? 14 : 12), 16, 64), d = tx - cat.x;
       if (fabsf(d) < 1.5f) {
         cat.dir = s;
-        if (rnd() < 0.6f) go(BAT, 0.55f);
-        else cat.hops = 0, go(CROUCH, 0.5f);
+        if (!chasing() && rnd() < 0.6f) go(BAT, 0.55f);
+        else cat.hops = 0, go(CROUCH, chasing() ? 0.6f : 0.5f);
         break;
       }
       cat.dir = d > 0 ? 1 : -1;
@@ -165,6 +315,7 @@ void update(float dt) {
     case CROUCH:
       if (cat.t < cat.dur) break;
       if (cat.hops) leap(cat.x, 7, cat.hops - 1);
+      else if (chasing()) leap(vis.x - cat.dir * 8, vis.kind == BUTTERFLY ? 14 : 8, 0);
       else leap(ball.x - cat.dir * 8, fminf(10 + 0.25f * fabsf(ball.x - cat.x), 18), 0);
       break;
     case JUMP:
@@ -173,12 +324,17 @@ void update(float dt) {
       cat.y = GROUND;
       if (fabsf(ball.x - (cat.x + cat.dir * 8)) < 7 && ball.y > GROUND - 6)  // paws landed on the yarn
         kick(cat.dir * (50 + 40 * rnd()), -(60 + 60 * rnd()));
+      if (chasing() && !cat.hops) {  // the pounce: 30 % of the time the visitor is caught
+        if (fabsf(vis.x - (cat.x + cat.dir * 8)) < 8 && rnd() < 0.3f) vis.on = false, pet::joy(3), cat.happy = 2.5f, cat.hops = 2;
+        else flee();
+      }
       go(LAND, cat.hops ? 0.08f : 0.2f);
       break;
     case LAND:
       if (cat.t < cat.dur) break;
       if (cat.hops) leap(cat.x, 7, cat.hops - 1);
-      else go(IDLE, 0.6f + 1.2f * rnd());
+      else if (cat.wake) cat.wake = false, go(YAWN, 1.5f);
+      else idleDone();
       break;
     case BAT:
       if (!cat.kicked && cat.t > 0.28f) {  // hit the yarn on the paw's downswing
@@ -187,17 +343,44 @@ void update(float dt) {
       }
       if (cat.t > cat.dur) go(IDLE, 0.4f + 0.6f * rnd());
       break;
+    case SLEEP:
+      if (mood != pet::SLEEP) go(YAWN, 1.5f);
+      break;
+    case HUNGRY:
+      if (mood != pet::HUNGRY) go(IDLE, 1);
+      break;
+    case BORED:
+      if (mood != pet::SAD) go(IDLE, 1);
+      break;
+    case ANGRY:  // one hop back, then glare
+      if (cat.y < GROUND || cat.vy < 0) {
+        cat.vy += G * dt, cat.x = clampf(cat.x + cat.vx * dt, 16, 64), cat.y += cat.vy * dt;
+        if (cat.y >= GROUND) cat.y = GROUND, cat.vy = 0;
+      }
+      if (cat.t > cat.dur) go(IDLE, 1);
+      break;
+    case EAT:
+    case REFUSE:
+    case PURR:
+      if (cat.t > cat.dur) go(IDLE, 1 + rnd());
+      break;
+    case YAWN:
+      if (cat.t > cat.dur) go(IDLE, 2 + 2 * rnd());
+      break;
   }
 }
 
 void drawCat() {
-  const int d = cat.dir;
+  const int d = cat.dir, st = cat.st;
   float bh = 9, a = 0, rx = 8, ry = 4.5f;   // body center height above feet, tilt, radii
   float tb = 1.2f, ta = 0.35f, tw = 2.5f;    // tail: base angle, swing amplitude, speed
   float u[4] = {}, lift[4] = {}, th[4] = {};  // legs: 0 far hind, 1 far front, 2 near hind, 3 near front
-  bool air = cat.st == JUMP;
+  float hdx = 7.5f, hdy = -5;                 // head center in body coordinates
+  int eyes = -1;                              // -1: open / blink / happy as usual
+  bool air = st == JUMP || ((st == ANGRY || st == KO) && cat.y < GROUND - 0.5f);
+  bool tuck = false, front = false, curl = false;  // legs hidden / stretched forward lying down; tail curled on the ground
 
-  switch (cat.st) {
+  switch (st) {
     case IDLE: bh += 0.5f * sinf(T * 3); break;  // breathing
     case RUN:
       bh += 0.8f * fabsf(sinf(cat.phase)), tb = 0.7f, ta = 0.2f, tw = 8;
@@ -222,6 +405,37 @@ void drawCat() {
       th[3] = t < 0.25f ? 2.2f * t / 0.25f : t < 0.35f ? 2.2f - 19 * (t - 0.25f) : 0.3f * fmaxf(0, 1 - (t - 0.35f) / 0.2f);
       break;
     }
+    case SLEEP:  // curled up, breathing 1 px every 2 s
+      bh = 4.2f + 0.5f * sinf(T * 3.1416f), rx = 8, ry = 4.2f, tuck = curl = true, hdx = 7, hdy = -0.8f;
+      eyes = cat.peek > 0 ? EYES_PEEK : EYES_CLOSED;
+      break;
+    case BORED:  // lying like a sphinx, tail tip flicking
+    case KO:
+      bh = 4.5f, rx = 8.3f, ry = 4.2f, front = !air, hdx = 8.5f, hdy = -3, tb = 0.1f, ta = 0.6f, tw = 2;
+      eyes = st == KO ? EYES_DIZZY : EYES_HALF;
+      if (air) bh = 9, front = false;
+      break;
+    case HUNGRY:  // sitting by the empty bowl, now and then looking into it
+    case PURR:
+      a = 0.4f, bh = 7.5f, tb = 0.6f, ta = 0.15f, tw = 1.5f;
+      if (st == PURR) eyes = EYES_HAPPY;
+      else if (fmodf(cat.t, 4) > 3.2f) hdx += 1.5f, hdy += 2.5f;
+      break;
+    case EAT:  // head in the bowl, chewing
+      a = -0.12f, hdx = 8.5f, hdy = -1.5f + 0.7f * sinf(T * 12), eyes = EYES_HAPPY;
+      break;
+    case REFUSE:  // head shake
+      hdx += 1.2f * sinf(cat.t * 20), eyes = EYES_BLINK;
+      break;
+    case YAWN: {  // stretch, front low, mouth wide
+      float k = fminf(1, 1.5f * sinf(fminf(cat.t / cat.dur, 1) * 3.1416f));
+      a = -0.2f * k, rx = 8 + k, bh = 9 - k;
+      if (cat.t > 0.25f && cat.t < 1.25f) eyes = EYES_YAWN;
+      break;
+    }
+    case ANGRY:  // puffed up, tail straight up
+      rx = 9, ry = 5.5f, bh = 10, tb = 1.5f, ta = 0.05f, tw = 20, eyes = EYES_FROWN;
+      break;
   }
 
   float bx = cat.x, by = cat.y - bh, ca = cosf(a), sa = sinf(a);
@@ -231,35 +445,50 @@ void drawCat() {
   const float JL[4] = {-4, 6, -5.5f, 4.5f};
   for (int i = 0; i < 4; i++) {
     W(JL[i], 2.5f, jx[i], jy[i]);
-    bool raised = cat.st == BAT && i == 3;
+    bool raised = st == BAT && i == 3;
     if (air || raised) qx[i] = jx[i] + d * 6 * sinf(th[i]), qy[i] = jy[i] + 6 * cosf(th[i]);
+    else if (front) qx[i] = jx[i] + d * (i & 1 ? 5 : 3.5f), qy[i] = cat.y - 1;
     else qx[i] = jx[i] + d * u[i], qy[i] = cat.y - 0.5f - lift[i];
   }
 
   float kx[8], ky[8];
-  W(-7.5f, -1.5f, kx[0], ky[0]);
-  for (int i = 1; i < 8; i++) {
-    float g = tb - a + 0.13f * i + ta * sinf(tw * T - 0.55f * i) * i / 7;
-    kx[i] = kx[i - 1] - d * 1.5f * cosf(g), ky[i] = ky[i - 1] - 1.5f * sinf(g);
+  if (curl) {  // around the body along the ground, tip in front
+    static const float CX[8] = {-7.5f, -9.5f, -9, -6.5f, -2, 3, 7, 9.5f}, CY[8] = {-1.5f, 1, 3, 4, 4.3f, 4.3f, 4, 2.8f};
+    for (int i = 0; i < 8; i++) W(CX[i], CY[i] + (i == 7 ? 0.5f * sinf(T * 2) : 0), kx[i], ky[i]);
+  } else {
+    W(-7.5f, -1.5f, kx[0], ky[0]);
+    for (int i = 1; i < 8; i++) {
+      float g = tb - a + 0.13f * i + ta * sinf(tw * T - 0.55f * i) * i / 7;
+      kx[i] = kx[i - 1] - d * 1.5f * cosf(g), ky[i] = ky[i - 1] - 1.5f * sinf(g);
+    }
   }
 
   shadow(cat.x, 9 * fmaxf(0.3f, 1 - (GROUND - cat.y) / 30));
   for (int i = 1; i < 8; i++) capsule(kx[i - 1], ky[i - 1], kx[i], ky[i], 2.0f, INK);
   for (int i = 1; i < 8; i++) capsule(kx[i - 1], ky[i - 1], kx[i], ky[i], 1.0f, i >= 6 ? FUR2 : FUR);
-  for (int i = 0; i < 2; i++) capsule(jx[i], jy[i], qx[i], qy[i], 1.8f, INK), capsule(jx[i], jy[i], qx[i], qy[i], 0.8f, FUR2);
+  if (!tuck)
+    for (int i = 0; i < 2; i++) capsule(jx[i], jy[i], qx[i], qy[i], 1.8f, INK), capsule(jx[i], jy[i], qx[i], qy[i], 0.8f, FUR2);
   body(bx, by, rx, ry, a, d, 1);
-  for (int i = 2; i < 4; i++) capsule(jx[i], jy[i], qx[i], qy[i], 1.8f, INK);
+  if (!tuck)
+    for (int i = 2; i < 4; i++) capsule(jx[i], jy[i], qx[i], qy[i], 1.8f, INK);
   body(bx, by, rx, ry, a, d, 0);
-  for (int i = 2; i < 4; i++) capsule(jx[i], jy[i], qx[i], qy[i], 0.8f, FUR), disc(qx[i], qy[i] - 0.3f, 0.8f, CREAM);
+  if (!tuck)
+    for (int i = 2; i < 4; i++) capsule(jx[i], jy[i], qx[i], qy[i], 0.8f, FUR), disc(qx[i], qy[i] - 0.3f, 0.8f, CREAM);
 
   float hx, hy;
-  W(7.5f, -5, hx, hy);
-  int eyes = cat.happy > 0 ? EYES_HAPPY : fmodf(T, 3.3f) < 0.15f ? EYES_BLINK : EYES_OPEN;
-  int x0 = lroundf(hx - HW / 2), y0 = lroundf(hy - HH / 2);
-  for (int r = 0; r < HH; r++)
-    for (int c = 0; c < HW; c++) {
-      char ch = HEAD[eyes][r][c];
-      if (ch != '.') px(x0 + c, y0 + r, ch == 'K' ? INK : ch == 'O' ? FUR : ch == 'W' ? CREAM : PINK);
+  W(hdx, hdy, hx, hy);
+  if (eyes < 0) eyes = cat.happy > 0 ? EYES_HAPPY : fmodf(T, 3.3f) < 0.15f ? EYES_BLINK : EYES_OPEN;
+  art(HEAD[eyes], HH, lroundf(hx - HW / 2), lroundf(hy - HH / 2));
+
+  if (st == SLEEP && cat.peek <= 0)  // z z z floating up
+    for (int k = 0; k < 3; k++) {
+      float p = fmodf(T * 0.3f + k / 3.0f, 1);
+      art(ZZ, 4, lroundf(hx + d * (2 + 10 * p)) - 2, lroundf(hy - 8 - 20 * p), 1, nightW > 0.5f ? CREAM : INK);
+    }
+  if (st == PURR)  // little hearts rising
+    for (int k = 0; k < 3; k++) {
+      float p = fmodf(cat.t * 0.9f + k / 3.0f, 1);
+      art(LOVE, 4, lroundf(hx + d * (2 + 3 * k) + sinf(T * 4 + k)) - 2, lroundf(hy - 10 - 9 * p));
     }
 }
 
@@ -272,12 +501,63 @@ void drawBall() {
   capsule(ball.x - s * 0.6f, ball.y + c * 0.6f, ball.x + s * 0.2f, ball.y - c * 0.2f, 0.4f, YARN2);
 }
 
+void drawVisitor() {
+  if (!vis.on) return;
+  int x = lroundf(vis.x), facing = vis.flee ? (vis.vx > 0 ? 1 : -1) : (cat.x > vis.x ? 1 : -1);
+  if (vis.kind == BUTTERFLY) art(FLY[sinf(T * 20) > 0], 5, x - 3, lroundf(vis.y + 2 * sinf(T * 3)) - 2);
+  else art(RAT[vis.x != vis.home && fmodf(T, 0.2f) < 0.1f], 4, x - 4, GROUND - 4, facing);
+}
+
+#include "game.h"  // the runner game uses the drawing above
+
+// ---- Events from the firmware ----
+
+// Device shaken: the yarn flies, the cat startles and jumps, plays for a few seconds.
+// Asleep: a startled hop, a yawn, back to sleep. Starving: angry, no play.
+void shake() {
+  if (game.on) return;
+  kick((rnd() < 0.5f ? -1 : 1) * (40 + 60 * rnd()), -(90 + 80 * rnd()));
+  if (cat.st == SLEEP) {
+    awake = 0, cat.peek = 0, leap(cat.x, 10, 0), cat.wake = true;
+    return;
+  }
+  if (pet::s.full < 10 && grounded()) {
+    awake = 0, pose(ANGRY, 1.2f);
+    cat.vy = -sqrtf(2 * G * 5), cat.vx = -cat.dir * 22;
+    return;
+  }
+  awake = 6;
+  if (grounded()) leap(cat.x, 10, 0);
+}
+
+// Message/button: the cat hops twice in place for joy. Asleep: one eye opens for 2 s.
+void cheer() {
+  if (game.on) return;
+  if (cat.st == SLEEP) {
+    cat.peek = 2;
+    return;
+  }
+  cat.happy = 2.5f;
+  if (grounded() && cat.st != EAT) cat.hops = 2, go(CROUCH, 0.15f);
+}
+
+// Pet events (nothing during the game): feed accepted (also wakes it), feed while full, petted, too tired to play.
+void eat() {
+  if (!game.on) pose(EAT, 3), showBowl(true);
+}
+void refuse() {
+  if (!game.on) pose(REFUSE, 1);
+}
+void purr() {
+  if (!game.on) pose(PURR, 2);
+}
+void yawn() {
+  if (!game.on) pose(YAWN, 1.5f);
+}
+
 void init() {
   for (int y = 0; y < N; y++)
     for (int x = 0; x < N; x++) fb[y * N + x] = y < GROUND ? skyAt(x, y) : uint8_t(y < GROUND + 3 ? GRASS : GRASS2);
-  for (int y = 10; y < 25; y++)  // crescent moon
-    for (int x = 53; x < 68; x++)
-      if (hypotf(x + 0.5f - 60, y + 0.5f - 17) < 4.6f && hypotf(x + 0.5f - 62.5f, y + 0.5f - 15.5f) > 4.2f) px(x, y, MOON);
   for (int x = 0; x < N; x++) {
     if (rnd() < 0.3f) px(x, GROUND - 1, GRASS);  // grass tips
     if (rnd() < 0.4f) px(x, GROUND + 3, GRASS);
@@ -287,13 +567,20 @@ void init() {
 }
 
 void step(float dt) {
+  if (game.on) {
+    gameStep(dt);
+    gameDraw();
+    return;
+  }
   update(dt);
-  memcpy(fb, bg, sizeof fb);
-  for (int i = 0; i < NS; i++)  // twinkling stars (never over the moon)
-    if (sinf(T * 1.7f + sp[i]) > -0.2f && bg[sy[i] * N + sx[i]] != MOON) px(sx[i], sy[i], STAR);
+  drawSky();
+  if (bowl.on) art(bowl.food ? BOWL_FULL : BOWL_EMPTY, 5, lroundf(bowl.x) - 4, GROUND - 5);
   drawBall();
+  if (vis.kind == MOUSE) drawVisitor();  // on the grass, behind the cat
   drawCat();
+  if (vis.kind == BUTTERFLY) drawVisitor();
 }
 
 }  // namespace kitty
 namespace scene = kitty;  // firmware.ino talks to whichever scene is included through this name
+#define SCENE_PET         // firmware.ino: this scene has the pet features (pet.h, game, day/night)
