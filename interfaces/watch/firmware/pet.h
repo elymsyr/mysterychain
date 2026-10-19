@@ -91,7 +91,7 @@ struct Game {
   int8_t labelY = 11;                                // bubble row while the game runs
   int score;
   float t, speed, dist, air;  // t: since start or game over; air: since take-off, < 0 on the ground
-  Ob ob[3];
+  Ob ob[6];  // 6: the cat's wide view shows ~144 px, a new one still comes in off screen
 } runner;
 
 // Time of day (K6): each scene keeps a palette look per keyframe; between keyframes the looks blend linearly.
@@ -109,6 +109,24 @@ float look(int minuteOfDay, int &a, int &b) {  // looks around this minute, retu
   a = KEY[i].look, b = KEY[i + 1].look;
   return float(m - KEY[i].min) / (KEY[i + 1].min - KEY[i].min);
 }
+
+// Weather (A5): what the phone expects for the next 4 hours (#weather). The scenes draw it; the clock tap shows its icon.
+enum Wx : uint8_t { CLEAR, CLOUDY, WIND, RAIN, SNOW, STORM };
+const char *const WX[] = {"clear", "cloudy", "wind", "rain", "snow", "storm"};
+const float OVERCAST[] = {0, 0.45f, 0.15f, 0.7f, 0.65f, 0.85f};  // how far the sky greys over
+uint8_t wx = CLEAR;
+// Icons for the clock bubble, 9 wide: K ink, G cloud grey, B rain blue, Y sun yellow (the firmware's extra palette entries).
+const int WX_H = 9;
+#define CLOUD_ROWS "...KKK...", ".KKGGGKK.", "KGGGGGGGK", "KGGGGGGGK", ".KKKKKKK."
+const char *const WX_ICON[6][WX_H] = {
+    {".........", "....Y....", "..Y...Y..", "...YYY...", ".Y.YYY.Y.", "...YYY...", "..Y...Y..", "....Y....", "........."},
+    {".........", "......YY.", "...KKKYYY", ".KKGGGKKY", "KGGGGGGGK", "KGGGGGGGK", ".KKKKKKK.", ".........", "........."},
+    {".........", "......BB.", "........B", "BBBBBBBB.", ".........", "BBBBBBB..", ".......B.", ".....BB..", "........."},
+    {CLOUD_ROWS, ".B..B..B.", "B..B..B..", ".B..B..B.", "........."},
+    {CLOUD_ROWS, ".B....B..", "BBB..BBB.", ".B....B..", "........."},
+    {CLOUD_ROWS, "...YYY...", "..YYY....", "....YY...", "...Y....."},
+};
+#undef CLOUD_ROWS
 
 uint16_t &best() { return s.best[s.scene]; }  // the current look's high score
 

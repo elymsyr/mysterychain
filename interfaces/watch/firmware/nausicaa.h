@@ -885,11 +885,11 @@ Game &game = pet::runner;
 
 enum { GUNSHIP, CORVETTE, CROW };
 const int PY = 67;                                        // her row (the glider's middle)
-const float REACH_X = 17, TILT_FULL = 0.5f, GLIDE_V = 80;  // px either side of the middle; tilt (g) for the edge; px/s
+const float REACH_X = 17, TILT_FULL = 0.25f, GLIDE_V = 120;  // px either side of the middle; tilt (g) for the edge; px/s
 const float SHOT_V = 120, FIRE_DT = 0.14f;                // her shots px/s; auto-fire interval
 const float HEAT_SHOT = 0.11f, HEAT_COOL = 0.3f, JAM_COOL = 0.7f;  // heat a shot; cooling /s, and while jammed (~1.4 s)
 const float BULLET_V = 38, SCROLL_V = 22;                 // enemy shots, ground px/s
-const int SHOT_TOP = 25;  // the score bubble ends above this row: her shots fade there, planes start firing below it
+const int SHOT_TOP = 25;  // the score bubble ends above this row: planes start firing below it
 
 // Nose down (they fly at her). K outline, M / m olive and its shade, R / r red and its shade, W glass.
 const char *const GUNSHIP_ART[] = {
@@ -926,7 +926,7 @@ struct Puff {
   float x, y, vx, vy, life;
   uint8_t c;
 } puffs[32];
-float mx = 40, mv = 0, tiltTo = 40, heat = 0, fireT = 0, flashT = 0, spawnT = 0, scrollY = 0;
+float mx = 40, mv = 0, tiltTo = 40, aim = 40, bank = 0, heat = 0, fireT = 0, flashT = 0, spawnT = 0, scrollY = 0;
 bool jam = false;
 
 int planeW(const Plane &p) { return strlen(PLANE[p.kind].art[0]); }
@@ -970,7 +970,7 @@ void gameStart() {
   tgo(SHOULDER, 0);
   game = Game();
   game.on = true;
-  mx = tiltTo = 40, mv = heat = fireT = flashT = 0, jam = false, spawnT = 1;
+  mx = tiltTo = aim = 40, mv = bank = heat = fireT = flashT = 0, jam = false, spawnT = 1;
   for (auto &p : planes) p.on = false;
   for (auto &s : shots) s.on = false;
   for (auto &b : bullets) b.on = false;
@@ -998,11 +998,11 @@ void down() {  // she's hit: the end
 
 void gameStep(float dt) {
   T += dt, game.t += dt, scrollY += SCROLL_V * dt;
-  float lvl = 1 + 0.6f * fminf(game.score, 60) / 60;  // everything a bit quicker as the score climbs
+  float lvl = 0.6f + fminf(game.t, 60) / 60;  // calm at first, everything quicker as the game goes on (x1.6 after a minute)
   for (auto &p : puffs)
     if (p.life > 0) p.life -= dt, p.x += p.vx * dt, p.y += (p.vy + SCROLL_V) * dt, p.vx *= 1 - 2 * dt, p.vy *= 1 - 2 * dt;
   for (auto &s : shots)
-    if (s.on && (s.y -= SHOT_V * dt) < SHOT_TOP) s.on = false;
+    if (s.on && (s.y -= SHOT_V * dt) < -3) s.on = false;  // up to the top edge (under the bubble)
   for (auto &b : bullets)
     if (b.on) {
       b.x += b.vx * dt, b.y += b.vy * dt;
@@ -1049,8 +1049,12 @@ void gameStep(float dt) {
     if (game.t > 10) game.on = false, pose(IDLE, 1);
     return;
   }
-  mv = clampf((tiltTo - mx) * 8, -GLIDE_V, GLIDE_V);
+  // Smooth flight: the aim follows the tilt (hand tremor filtered), the glide eases in and out, the wings bank slowly:
+  // a jittery tilt no longer rocks her left-right.
+  aim += (tiltTo - aim) * fminf(1, 8 * dt);
+  mv += (clampf((aim - mx) * 7, -GLIDE_V, GLIDE_V) - mv) * fminf(1, 16 * dt);
   mx += mv * dt;
+  bank += (clampf(mv / 60, -1, 1) - bank) * fminf(1, 6 * dt);
   flashT -= dt, fireT -= dt;
   if ((heat -= (jam ? JAM_COOL : HEAT_COOL) * dt) <= 0) heat = 0, jam = false;
   if (game.held && !jam && fireT <= 0) {
@@ -1104,7 +1108,7 @@ void drawPlane(const Plane &p) {
 }
 
 void drawMehve() {  // nose up, banking into the turn; she lies on top, Teto on her back
-  float x = mx, y = PY, bank = clampf(mv / GLIDE_V, -1, 1), span = 9 - 2 * fabsf(bank);
+  float x = mx, y = PY, span = 9 - 2 * fabsf(bank);
   if (game.dead) span = 9 * cosf(game.t * 9), y += fminf(game.t, 2) * 3;  // spinning down
   for (int s = -1; s <= 1; s += 2) {
     float tx = x + s * span, ty = y + 2.5f + s * 1.5f * bank;

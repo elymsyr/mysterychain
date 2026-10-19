@@ -57,7 +57,7 @@ static bool clears(int kind, float speed, float hold) {
     gameStart();
     game.speed = speed, game.fixedSpeed = true;
     game.ob[0] = {hero.x + 70, (uint8_t)kind, false};
-    game.ob[1].x = game.ob[2].x = 1e9f;
+    for (int i = 1; i < 6; i++) game.ob[i].x = 1e9f;
     float t = 0, press = -1, passed = -1;
     while (!game.dead && (passed < 0 || t - passed < 0.4f)) {  // a while past the pot: its bird is behind it
       if (press < 0 && game.ob[0].x - hero.x <= lead) press = t;
@@ -73,29 +73,34 @@ static bool clears(int kind, float speed, float hold) {
   return false;
 }
 
-// A pot, then a second one right after it (tightX): holds `hold1`, then taps. True = both cleared.
-static bool clearsTight(float speed, float hold1) {
+// Two obstacles at the closest gap at full difficulty (gapX, no random extra), the second `kind`: a jump fit for each
+// (tap / held), the second pressed at every possible moment. Returns how long the window to press it is, in s.
+static float pairWindow(int first, int kind, float speed) {
   using namespace run;
-  for (float lead1 = -5; lead1 < 60; lead1 += 1)
-    for (float lead2 = -5; lead2 < 60; lead2 += 1) {
+  float best = 0;
+  for (float lead1 = -5; lead1 < 60; lead1 += 1) {
+    int ok = 0;
+    for (float lead2 = -5; lead2 < 80; lead2 += 0.5f) {
       gameStart();
-      game.speed = speed, game.fixedSpeed = true;
-      game.ob[0] = {hero.x + 70, POT, false};
-      game.ob[1] = {tightX(game.ob[0].x), POT, false};
-      game.ob[2].x = 1e9f;
-      float t = 0, p1 = -1, p2 = -1;
-      while (!game.ob[1].passed && !game.dead) {
+      game.speed = speed, game.fixedSpeed = true, game.t = 1e3f;  // full difficulty: the tightest gaps
+      game.ob[0] = {hero.x + 70, (uint8_t)first, false};
+      game.ob[1] = {gapX(game.ob[0], (uint8_t)kind, 0), (uint8_t)kind, false};
+      for (int i = 2; i < 6; i++) game.ob[i].x = 1e9f;
+      float h1 = first == FENCE ? 0.4f : 0.1f, h2 = kind == FENCE ? 0.4f : 0.1f, t = 0, p1 = -1, p2 = -1, passed = -1;
+      while (!game.dead && (passed < 0 || t - passed < 0.4f)) {
         if (p1 < 0 && game.ob[0].x - hero.x <= lead1) p1 = t;
         if (p2 < 0 && game.score && game.ob[1].x - hero.x <= lead2) p2 = t;
-        gameInput((p1 >= 0 && t - p1 < hold1) || (p2 >= 0 && t - p2 < 0.1f));
+        gameInput((p1 >= 0 && t - p1 < h1) || (p2 >= 0 && t - p2 < h2));
         gameStep(1 / 60.f);
         t += 1 / 60.f;
+        if (passed < 0 && game.score == 2) passed = t;
       }
-      bool ok = !game.dead;
+      ok += !game.dead;
       game.on = false;
-      if (ok) return true;
     }
-  return false;
+    best = fmaxf(best, ok * 0.5f / speed);
+  }
+  return best;
 }
 #endif
 
@@ -164,13 +169,13 @@ int main() {
   // Pavi: level = middle lane = into the boulder, a tilt past TILT_IN = a side lane; 20 Hz frames at top speed don't
   // jump over it. The lane holds until the tilt drops under TILT_OUT.
   s = Saved();
-  for (float v : {6.f, 12.f})
+  for (float v : {4.f, 12.f})
     for (float dt : {1 / 60.f, 0.05f}) {
-      assert(tiltHits(0, v, dt) && tiltHits(0.3f, v, dt));
-      assert(!tiltHits(0.5f, v, dt) && !tiltHits(-0.5f, v, dt));
+      assert(tiltHits(0, v, dt) && tiltHits(0.12f, v, dt));
+      assert(!tiltHits(0.25f, v, dt) && !tiltHits(-0.25f, v, dt));
     }
   run::gameStart();
-  for (auto [g, l] : {std::pair{0.3f, 0}, {0.4f, 1}, {0.25f, 1}, {0.1f, 0}, {-0.4f, -1}, {-0.25f, -1}, {0.5f, 1}})
+  for (auto [g, l] : {std::pair{0.12f, 0}, {0.2f, 1}, {0.12f, 1}, {0.05f, 0}, {-0.2f, -1}, {-0.12f, -1}, {0.5f, 1}})
     run::gameTilt(g), assert(run::lane == l);
   run::game.on = false;
 #elif defined(NAUSICAA)
@@ -182,9 +187,9 @@ int main() {
     using namespace run;
     gameStart();
     spawnT = 1e9f;
-    for (auto [g, x] : {std::pair{0.f, 40.f}, {0.5f, 40 + REACH_X}, {-2.f, 40 - REACH_X}, {0.25f, 40 + REACH_X / 2}}) {
-      for (int i = 0; i < 60; i++) gameTilt(g), gameStep(1 / 60.f);
-      assert(fabsf(mx - x) < 0.1f);  // there within a second
+    for (auto [g, x] : {std::pair{0.f, 40.f}, {0.5f, 40 + REACH_X}, {-2.f, 40 - REACH_X}, {0.125f, 40 + REACH_X / 2}}) {
+      for (int i = 0; i < 90; i++) gameTilt(g), gameStep(1 / 60.f);
+      assert(fabsf(mx - x) < 0.1f);  // there within 1.5 s (eased glide)
     }
     float t = 0;
     for (; !jam && t < 5; t += 1 / 60.f) gameInput(true), gameStep(1 / 60.f);
@@ -206,7 +211,7 @@ int main() {
   assert(fight(GUNSHIP, 40, 0, false, 4));
   assert(!fight(GUNSHIP, 40, 0.5f, false, 4) && game.score == 0);
   assert(fight(CORVETTE, 40, 0, false, 8));
-  assert(!fight(CROW, 40, 0.3f, true, 10) && game.score == 8);
+  assert(!fight(CROW, 40, 0.15f, true, 10) && game.score == 8);
 #else
   // Runner: a tap clears a pot, not a fence; a held jump clears a fence; a pot under a bird needs a tap, a held
   // jump hits the bird; a pot right after a pot: tap-tap works.
@@ -214,12 +219,13 @@ int main() {
   using run::POT;
   using run::FENCE;
   using run::BIRD;
-  for (float v : {50.f, 70.f, 90.f}) {
+  for (float v : {35.f, 60.f, 90.f}) {
     assert(clears(POT, v, 0.1f));
     assert(!clears(FENCE, v, 0.1f));
     assert(clears(FENCE, v, 0.4f));
     assert(clears(BIRD, v, 0.1f) && !clears(BIRD, v, 0.5f) && !clears(BIRD, v, 0));
-    assert(clearsTight(v, 0.1f));
+    for (int a : {POT, FENCE, BIRD})  // any two in a row, closest gap, top difficulty: still a fair window to press
+      for (int b : {POT, FENCE, BIRD}) assert(pairWindow(a, b, v) >= 0.15f);  // measured 0.20 s (35 px/s) .. 0.43 s (90 px/s)
   }
 #endif
 #ifdef SCENE_PICK  // pets.h: switching the look rebinds buffer, palette and bubble colors, and ends a running game

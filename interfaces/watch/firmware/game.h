@@ -3,8 +3,8 @@
 //   vis.on, art() with the cat's sprite letters, bg / fb, rnd(), T, GROUND,
 //   BIRD_TOP (bird's top row: a hop's head passes under it), HEAD_X0 / HEAD_X1 / HEAD_H (head span from hero.x and its
 //   top above the paws, for the bird),
-//   GAME_UP (the game is drawn this many rows higher: the ground nears the wide middle of the round screen),
-//   LABEL_Y (score bubble row: down in the grass, clear of the jumps), SCROLL_Y (first ground row).
+//   LABEL_Y (score bubble row: down in the grass, clear of the jumps), SCROLL_Y (first ground row),
+//   the wide view: gfb (GN x GN), OX / OY (world x = view x - OX), skyAt(), bg (its ground rows scroll).
 // The hero runs at a fixed x, the world scrolls left. Tap = hop (pots, under birds); hold = high jump (fences).
 // The firmware feeds the button level (gameInput), restarts after a game over and reads `game.ended`.
 
@@ -13,9 +13,8 @@ enum { POT, FENCE, BIRD };  // BIRD: a pot with a bird flying low over it
 // Letting go caps the rise at SHORT_H (or at once if already higher), so a quick tap is always the same small hop.
 const float GJ = 110, SHORT_H = 14, LONG_H = 22, DROP_V = 20;  // gravity px/s², apex px, rise left after a late let-go px/s
 const float JUMP_V = sqrtf(2 * GJ * LONG_H);                     // take-off speed px/s
-const float SPEED0 = 50, SPEED_UP = 5, SPEED_MAX = 90;   // px/s; +SPEED_UP every 10 points
-const float TIGHT = 0.8f;  // pot right after a pot: gap in s of running
-const int POT_H = 10, FENCE_H = 17;
+const float SPEED0 = 35, SPEED_UP = 1, SPEED_MAX = 90;   // px/s; +SPEED_UP every second played (top speed after ~1 min)
+const int POT_H = 10, FENCE_H = 16;
 const float OB_W[] = {5, 7, 5}, OB_H[] = {POT_H, FENCE_H, POT_H};  // hitbox width, height
 const float BIRD_LOW = GROUND - BIRD_TOP - 4;  // bird's bottom, px above the ground
 // The bird flies BIRD_DX px behind its pot (art and hitbox 7 px wide): a high jump can't sneak a rise or a fall past it
@@ -26,7 +25,7 @@ const int BIRD_DX = 4;
 const char *const POT_ART[POT_H] = {"..g.g..", ".gGgGg.", "..gGg..", "...G...", "KKKKKKK",
                                     "KCCCCCK", "KCCCCCK", ".KCCCK.", ".KCCCK.", ".KKKKK."};
 const char *const FENCE_ART[FENCE_H] = {".K..K..K.", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK", "KKKKKKKKK",
-                                        "KWWWWWWWK", "KKKKKKKKK", "KWKKWKKWK", "KWKKWKKWK", "KWKKWKKWK",
+                                        "KWWWWWWWK", "KKKKKKKKK", "KWKKWKKWK", "KWKKWKKWK",
                                         "KWKKWKKWK", "KKKKKKKKK", "KWWWWWWWK", "KKKKKKKKK", "KWKKWKKWK"};
 const char *const BIRD_ART[2][5] = {{"...KK..", "..KYYK.", ".KYYYYK", "CKKYYYK", ".KKKKK."},   // wings up
                                     {".......", ".KKKKK.", "CKKYYYK", ".KYYYYK", "...KYK."}};  // wings down
@@ -35,9 +34,18 @@ using pet::Game;
 using pet::Ob;
 Game &game = pet::runner;
 
-float nextX(float after) { return after + game.speed * (1.1f + 1.2f * rnd()) + 10; }
-// Right after a pot: hop, land, hop again (a high jump lands late, unless timed just right).
-float tightX(float after) { return after + game.speed * TIGHT; }
+// Spacing, after Chrome's dino (gap = what a jump covers at the current speed, x a random 1..1.5): centre to centre,
+// half of each obstacle's jump time plus SLACK to land and press again. Roomy at first, down to a quick re-press
+// (~human reaction) as the game speeds up. In seconds, so it holds at any speed.
+const float AIR_TAP = 2 * sqrtf(2 * SHORT_H / GJ), AIR_HIGH = 2 * sqrtf(2 * LONG_H / GJ);  // ~1.0 s, ~1.26 s in the air
+const float AIR[] = {AIR_TAP, AIR_HIGH, AIR_TAP};
+const float SPAN[] = {5, 7, BIRD_DX + 7};  // how far along the ground each one reaches (the bird flies behind its pot)
+const float SLACK0 = 0.8f, SLACK1 = 0.3f, LEVEL_S = 60;  // s: at the start, at full difficulty (after LEVEL_S)
+float level() { return fminf(game.t / LEVEL_S, 1); }
+float gapX(const Ob &a, uint8_t kind, float extra) {  // x of the next obstacle after a; extra 0..1 = up to 1.5x the gap
+  float s = (AIR[a.kind] + AIR[kind]) / 2 + SLACK0 + (SLACK1 - SLACK0) * level();
+  return a.x + SPAN[a.kind] / 2 + game.speed * s * (1 + 0.5f * extra) - SPAN[kind] / 2;
+}
 uint8_t pickOb() {
   float r = rnd();
   if (game.score >= 10 && r < 0.25f) return BIRD;
@@ -47,11 +55,12 @@ uint8_t pickOb() {
 void gameStart() {
   game = Game();
   game.on = true, game.speed = SPEED0, game.air = -1, game.labelY = LABEL_Y;
-  hero.x = 9, hero.dir = 1, hero.happy = 0;
+  hero.x = -2, hero.dir = 1, hero.happy = 0;  // left in the wide view, clear of the round edge
   pose(RUN, 0);
   vis.on = false;
-  float x = 90;
-  for (Ob &o : game.ob) o = {x, POT, false}, x = nextX(x);  // a few easy pots first
+  const Ob *prev = &(game.ob[0] = {GN - OX + 10.f, POT, false});  // just off the right edge; a few easy pots first
+  for (Ob &o : game.ob)
+    if (&o != prev) o = {gapX(*prev, POT, rnd()), POT, false}, prev = &o;
 }
 
 void finish() {  // stats and the event for the firmware
@@ -90,7 +99,7 @@ void gameStep(float dt) {
     if (game.t > 10) game.on = false, pose(IDLE, 1);
     return;
   }
-  if (!game.fixedSpeed) game.speed = fminf(SPEED0 + SPEED_UP * (game.score / 10), SPEED_MAX);
+  if (!game.fixedSpeed) game.speed = fminf(SPEED0 + SPEED_UP * game.t, SPEED_MAX);
   float dx = game.speed * dt;
   game.dist += dx;
   hero.phase += 15 * dt * game.speed / SPEED0;
@@ -115,18 +124,20 @@ void gameStep(float dt) {
     }
   }
   for (Ob &o : game.ob)
-    if (o.x < -10) {
-      bool tight = last->kind == POT && game.score >= 5 && rnd() < 0.3f;
+    if (o.x < -OX - 10) {
       uint8_t kind = pickOb();
-      o = {tight ? tightX(last->x) : nextX(last->x), tight && kind == FENCE ? (uint8_t)POT : kind, false}, last = &o;
+      o = {gapX(*last, kind, rnd()), kind, false}, last = &o;
     }
 }
 
 void gameDraw() {
-  drawSky();
   int off = (int)game.dist % N;  // the ground scrolls with the world
-  for (int y = SCROLL_Y; y < N; y++)
-    for (int x = 0; x < N; x++) fb[y * N + x] = bg[y * N + (x + off) % N];
+  for (int vy = 0; vy < GN; vy++)
+    for (int vx = 0, y = vy - OY; vx < GN; vx++) {
+      int x = vx - OX;
+      gfb[vy * GN + vx] = y < SCROLL_Y ? skyAt(vx, y < 0 ? 0 : y) : y < N ? bg[y * N + (x + off + N) % N] : uint8_t(GRASS2);
+    }
+  drawSky();
   for (const Ob &o : game.ob) {
     int x = lroundf(o.x);
     if (o.kind == FENCE) art(FENCE_ART, FENCE_H, x - 1, GROUND - FENCE_H);
@@ -134,8 +145,6 @@ void gameDraw() {
     if (o.kind == BIRD) art(BIRD_ART[sinf(T * 14) > 0], 5, x + BIRD_DX, BIRD_TOP);
   }
   drawHero();
-  memmove(fb, fb + GAME_UP * N, (N - GAME_UP) * N);  // view raised: the ground nears the wide middle
-  memcpy(fb + (N - GAME_UP) * N, fb + (N - 2 * GAME_UP) * N, GAME_UP * N);  // bottom rows: the grass again
 }
 
 // Bubble text: score and high score while running, the result after a game over.

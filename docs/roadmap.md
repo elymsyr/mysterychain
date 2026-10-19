@@ -19,11 +19,10 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 
 | ID | Feature | What it does | Needs |
 | --- | --- | --- | --- |
-| A1 | Notification forwarding | Phone notifications (WhatsApp, SMS…) show app name and title in the bubble, with a vibration pattern per app. Apps are picked in the app; no vibration during quiet hours. Needs Android "Notification access". | O1, O3, S1 |
 | A2 | Incoming call | **Coded.** Caller name on screen, buzzes while ringing, stops when the call ends. No answer/reject. Read from the dialer's call notification, so WhatsApp calls count too. | O1, O3 |
 | A3 | Find my keychain | **Done.** "Find" in the app: patterned vibration and a blinking screen until the button is pressed (or 60 s). Works during quiet hours too. | O1 |
 | A4 | Clock sync | **Done.** The phone sends the time on connect; the board keeps time and corrects on each connection. A button tap shows it. | O1 |
-| A5 | Weather | The phone pulls local weather from open-meteo (free, no key) and periodically sends condition + temperature. Rain, snow, clouds or sun appear in the scene. | O1, O3, A4, K6 |
+| A5 | Weather | The phone pulls the forecast for the next 4 hours from open-meteo (free, no key) and sends one of clear / cloudy / wind / rain / snow / storm (`#weather`). The scene and the pet's behavior follow it (cat: sunbathing in shades, chasing blown leaves, an umbrella in the rain, pawing at snowflakes, startled by thunder); a button tap shows its icon next to the clock. **Cat animations coded 2026-10-19** (preview only); firmware command, app side, Pavi and Nausicaa still open. | O1, O3, A4, K6 |
 | A6 | Quick reactions | **Done.** One-tap messages in the app (heart, "on my way", "where are you"). Bubble on the board, the pet reacts. | O1 |
 | A7 | Camera shutter / music control | The button acts as a media key (BLE HID): take a photo, play/pause, next track. | O4, decision 2 |
 | A8 | Over-the-air update | Flash firmware over BLE (Bluefruit `BLEDfu`) instead of USB. Must work before the case is closed; needs testing with the XIAO bootloader. | — |
@@ -57,9 +56,9 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 
 | ID | What | Why | Used by |
 | --- | --- | --- | --- |
-| O1 | Message protocol | **Done:** `#command args`, anything else goes to the bubble ([protocol](../interfaces/watch/README.md#protocol)). New commands are added there. | A1–A6, S1 |
+| O1 | Message protocol | **Done:** `#command args`, anything else goes to the bubble ([protocol](../interfaces/watch/README.md#protocol)). New commands are added there. | A2–A6, S1 |
 | O2 | Persistent storage | **Coded:** settings and pet stats survive power-off (internal flash, LittleFS file `/pet`). | K1, S1 |
-| O3 | App in the background | **Coded:** one foreground service (`KeychainService.kt`) holds the only BLE link, paired through CompanionDeviceManager (background start allowed, woken when the board is in range). A notification listener (`Bridge.kt`) feeds it calls and music. Sends `#time` on every connect. A1 and A5 add their sending here. | A1, A2, A5, A9, A4 repeats |
+| O3 | App in the background | **Coded:** one foreground service (`KeychainService.kt`) holds the only BLE link, paired through CompanionDeviceManager (background start allowed, woken when the board is in range). A notification listener (`Bridge.kt`) feeds it calls and music. Sends `#time` on every connect. A5 adds its sending here. | A2, A5, A9, A4 repeats |
 | O4 | Sharing the one button | Gestures (cat): tap = clock, double tap = feed, hold 1–3 s = game, hold 3 s = off, any press stops find. Shutter/music (A7) still open. | K2, K7, A7, A3 |
 
 ## Suggested order
@@ -70,7 +69,7 @@ Phases 2 and 3 don't depend on each other and can run in parallel.
 flowchart TD
     F1["Phase 1 · Foundation<br/>O1 protocol ✓, A4 clock sync ✓,<br/>O2 storage ◐, A8 OTA"]
     F1 --> F2["Phase 2 · The pet lives<br/>K1 stats ◐, K6 day/night ◐, K2 feeding ◐,<br/>K3 steps ◐, K4 petting ◐, K5 animations ◐"]
-    F1 --> F3["Phase 3 · Phone<br/>A3 find ✓, A6 reactions ✓, S1 settings ◐,<br/>O3 background ◐, A2 calls ◐, A9 now playing ◐,<br/>A1 notifications, A5 weather"]
+    F1 --> F3["Phase 3 · Phone<br/>A3 find ✓, A6 reactions ✓, S1 settings ◐,<br/>O3 background ◐, A2 calls ◐, A9 now playing ◐,<br/>A5 weather ◐"]
     F2 --> F4["Phase 4 · Extras<br/>K7 mini game ◐, A7 shutter / music"]
     F3 --> F4
     L["LiPo arrives"] -.-> F5["Phase 5 · Power<br/>S2 battery level,<br/>S3 power saving (on request)"]

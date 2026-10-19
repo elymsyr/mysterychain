@@ -1,7 +1,7 @@
 // Plays a pet scene on a PC and dumps clips of every animation, for a look before flashing (preview.py makes GIFs + a page):
 //   g++ -std=c++17 -O2 -I../firmware -I ~/Arduino/libraries/Adafruit_GFX_Library preview.cpp -o /tmp/preview_cat
 //   g++ ... -DPAVI ... -o /tmp/preview_pavi   (-DNAUSICAA: Nausicaa and Teto)
-//   /tmp/preview_cat <out dir>   (one <clip>.raw per clip: per frame a 256-entry RGB palette, then the 80x80 indices)
+//   /tmp/preview_cat <out dir>   (one <clip>.raw per clip: per frame a 256-entry RGB palette, then the 240x240 screen indices)
 // The speech bubble and the music marquee are redrawn here the way firmware.ino draws them (keep the two in step).
 #include <cstdio>
 #include <functional>
@@ -18,7 +18,8 @@
 
 using namespace scene;
 const float FRAME_S = 1 / 25.f;  // clip frame rate
-const int HEART = NCOL;     // firmware's extra palette entry
+const int HEART = NCOL;     // firmware's extra palette entries: heart, then the weather icon's sun, cloud grey, rain blue
+int icon = -1;              // clock bubble: weather icon (pet::WX_ICON) left of the time, -1 = none
 
 // ---- firmware.ino's overlay, by color index ----
 int clipL = 0, clipR = N;
@@ -42,7 +43,14 @@ void bubble(const char *s, uint8_t color, float t, int Y = 11) {
   roundRect(L + 1, Y + 1, R - L - 2, H - 2, 3, CREAM);
   int w = strlen(s) * 6, inner = R - L - 6;
   clipL = L + 2, clipR = R - 2;
-  if (w <= inner) text((L + R - w) / 2 + 1, Y + 3, s, color);
+  if (icon >= 0) {  // icon, 2 px gap, the time: centered together
+    static const char K[] = "KGBY";
+    int x0 = (L + R - (w + 11)) / 2 + 1;
+    for (int r = 0; r < pet::WX_H; r++)
+      for (int c = 0; c < 9; c++)
+        if (const char *k = strchr(K, pet::WX_ICON[icon][r][c]); k && *k) px(x0 + c, Y + 2 + r, k == K ? INK : HEART + (k - K));
+    text(x0 + 11, Y + 3, s, color);
+  } else if (w <= inner) text((L + R - w) / 2 + 1, Y + 3, s, color);
   else
     for (int k = 0, x = L + 3 - (int)(t * 1000 / 40) % (w + 20); k < 2; k++, x += w + 20) text(x, Y + 3, s, color);
   clipL = 0, clipR = N;
@@ -86,7 +94,11 @@ bool at(float t0, float t1, float when) { return t0 < when && when <= t1; }
 
 void run(const Clip &c, const char *dir) {
   pet::s = pet::Saved();
-  msg[0] = 0, msgT0 = -1, msgMusic = false;
+  msg[0] = 0, msgT0 = -1, msgMusic = false, icon = -1;
+  pet::wx = pet::CLEAR;
+#if !defined(PAVI) && !defined(NAUSICAA)
+  snowCover = 0, boltT = 3;
+#endif
   game.on = false;
   music(false);
   pose(IDLE, 0.5f);
@@ -96,8 +108,8 @@ void run(const Clip &c, const char *dir) {
   tgo(SHOULDER, 0);
 #endif
   int minute = c.minute;
+  c.setup();  // before tint: it may set the weather
   tint(minute < -1 ? 0 : minute);
-  c.setup();
   for (int i = 0; i < 25; i++) setMood(pet::mood(minute < 0 ? -1 : minute / 60)), step(FRAME_S);  // settle into the pose
   std::string path = std::string(dir) + "/" + c.name + ".raw";
   FILE *f = fopen(path.c_str(), "wb");
@@ -118,8 +130,20 @@ void run(const Clip &c, const char *dir) {
     uint8_t pal[256][3] = {};
     memcpy(pal, PAL, sizeof PAL);
     pal[HEART][0] = 255, pal[HEART][1] = 120, pal[HEART][2] = 150;
+    const uint8_t ICON_RGB[3][3] = {{150, 158, 172}, {60, 120, 230}, {250, 180, 30}};  // G cloud, B rain, Y sun
+    memcpy(pal[HEART + 1], ICON_RGB, sizeof ICON_RGB);
     fwrite(pal, 1, sizeof pal, f);
-    fwrite(fb, 1, sizeof fb, f);
+#if !defined(PAVI) && !defined(NAUSICAA)
+    const uint8_t *v = view;  // the cat's game: the wider view at 2x, like firmware.ino
+    int vn = VN;
+#else
+    const uint8_t *v = fb;
+    int vn = N;
+#endif
+    static uint8_t scr[240 * 240];
+    for (int y = 0; y < 240; y++)
+      for (int x = 0; x < 240; x++) scr[y * 240 + x] = v[y * vn / 240 * vn + x * vn / 240];
+    fwrite(scr, 1, sizeof scr, f);
   }
   fclose(f);
   printf("%s\n", c.name.c_str());
@@ -233,9 +257,29 @@ int main(int argc, char **argv) {
       {"groom", 13 * 60, 4, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(GROOM, 3.2f); }},
       {"tail_chase", 13 * 60, 3, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(SPIN, 2.2f); }},
 #endif
+#if !defined(PAVI) && !defined(NAUSICAA)
+      // Weather (A5): each kind once, by day and some by night; clock_icons taps the clock through all of them.
+      {"wx_clear", 11 * 60, 8, [] { pet::wx = pet::CLEAR; }, [](float a, float b) { if (at(a, b, 0.5f)) pose(SUNBATHE, 6.5f); }},
+      {"wx_cloudy", 13 * 60, 6, [] { pet::wx = pet::CLOUDY; }, [](float a, float b) { if (at(a, b, 3)) cheer(); }},
+      {"wx_wind", 13 * 60, 9, [] { pet::wx = pet::WIND; }, [](float a, float b) { if (at(a, b, 0.3f)) visit(); }},
+      {"wx_rain", 14 * 60, 10, [] { pet::wx = pet::RAIN; }, [](float a, float b) { if (at(a, b, 6)) shake(); }},
+      {"wx_rain_night", 23 * 60 + 30, 7, [] { pet::wx = pet::RAIN; }, idle},
+      {"wx_snow", 10 * 60, 10, [] { pet::wx = pet::SNOW, snowCover = 0.8f; }, [](float a, float b) {
+         if (at(a, b, 0.3f) || at(a, b, 5)) pose(SNOWPLAY, 2.4f);
+       }},
+      {"wx_snow_night", 21 * 60 + 30, 6, [] { pet::wx = pet::SNOW, snowCover = 1; }, idle},
+      {"wx_storm", 16 * 60, 10, [] { pet::wx = pet::STORM, boltT = 1.2f; }, idle},
+      {"wx_storm_night", 22 * 60, 8, [] { pet::wx = pet::STORM, boltT = 1.5f; }, idle},
+      {"wx_rain_travel", 13 * 60, 7, [] { pet::wx = pet::RAIN; }, [](float a, float b) { if (at(a, b, 0.2f)) travel(30); }},
+      {"wx_snow_travel", 13 * 60, 7, [] { pet::wx = pet::SNOW, snowCover = 1; }, [](float a, float b) { if (at(a, b, 0.2f)) travel(30); }},
+      {"clock_icons", 13 * 60, 12, none, [](float a, float b) {  // a tap every 2 s, the weather one further each time
+         for (int k = 0; k < 6; k++)
+           if (at(a, b, 2.f * k + 0.1f)) pet::wx = k, tint(13 * 60), icon = k, strcpy(msg, "13:00"), msgT0 = b, msgDur = 1.9f, msgMusic = false, msgColor = INK;
+       }},
+#endif
       {"dance", 13 * 60, 5, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(DANCE, 4.5f); }},
 #ifdef NAUSICAA
-      {"game_night", 21 * 60 + 30, 8, [] { pet::s.best = 40; }, [](float a, float b) {
+      {"game_night", 21 * 60 + 30, 8, [] { for (auto &b : pet::s.best) b = 40; }, [](float a, float b) {
          if (at(a, b, 0.3f)) gameStart(), game.score = 20;  // the late planes: corvettes and a Bumblecrow
          if (game.on) autopilot(b, 99);
        }},

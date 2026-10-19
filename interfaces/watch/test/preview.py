@@ -1,12 +1,13 @@
-# Turns preview.cpp's clip dumps into GIFs (80x80, round screen mask; scale them up in CSS with image-rendering: pixelated)
-# and, with --sheet, one PNG per clip with every 5th frame at 3x for a quick look.
+# Turns preview.cpp's clip dumps into GIFs (240x240 like the screen, round mask)
+# and, with --sheet, one PNG per clip with every 5th frame for a quick look.
 #   python3 preview.py <dump dir> <gif dir> [--sheet]
 import os
 import sys
 
 from PIL import Image
 
-N, FRAME = 80, 256 * 3 + 80 * 80
+N = 240
+FRAME = 256 * 3 + N * N
 src, dst = sys.argv[1], sys.argv[2]
 os.makedirs(dst, exist_ok=True)
 mask = Image.new("L", (N, N), 0)
@@ -30,8 +31,8 @@ for name in sorted(f[:-4] for f in os.listdir(src) if f.endswith(".raw")):
     if "--sheet" in sys.argv:
         picks = frames[::5]
         cols = 10
-        sheet = Image.new("RGB", (cols * N * 3, ((len(picks) + cols - 1) // cols) * N * 3))
+        sheet = Image.new("RGB", (cols * N, ((len(picks) + cols - 1) // cols) * N))
         for k, f in enumerate(picks):
-            sheet.paste(f.resize((N * 3, N * 3), Image.NEAREST), ((k % cols) * N * 3, (k // cols) * N * 3))
+            sheet.paste(f, ((k % cols) * N, (k // cols) * N))
         sheet.save(os.path.join(dst, name + "_sheet.png"))
     print(name, len(frames), "frames", os.path.getsize(os.path.join(dst, name + ".gif")) // 1024, "KB")

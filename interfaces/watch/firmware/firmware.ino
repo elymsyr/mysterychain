@@ -21,7 +21,7 @@
 const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0, DISP_PWR = D7;
 const uint32_t ON_HOLD_MS = 1000, OFF_HOLD_MS = 3000;  // power button, see powerOff()
 const uint32_t SPI_HZ = 32000000;          // if the image glitches: 16000000 (~17 fps)
-const int SC = 240 / scene::N, BAND = 8;   // 3x scale; strip of 8 logical rows = 11.5 KB
+const int SC = 240 / scene::N, BAND = 8;   // 3x scale; strip of 8 logical rows = 11.5 KB (any view size is stretched to 240)
 
 const float SHAKE_G = 0.5;           // shake when |a| deviates from 1 g by this much (pet scene: set from the app)
 const uint32_t SHAKE_GAP_MS = 400;   // don't count one shake several times
@@ -667,7 +667,7 @@ void loop() {
   if (scene::game.on && imuOk) {  // sideways tilt steers Pavi's and Nausicaa's games (the runner ignores it)
     static float tilt = 0;
     float a = TILT_AXIS == 0 ? imu.readFloatAccelX() : TILT_AXIS == 1 ? imu.readFloatAccelY() : imu.readFloatAccelZ();
-    tilt += (TILT_SIGN * a - tilt) * 0.4f;  // low-pass: a hand jolt or the motor doesn't flip the lane
+    tilt += (TILT_SIGN * a - tilt) * 0.6f;  // low-pass: a hand jolt or the motor doesn't flip the lane
     scene::gameTilt(tilt);
   }
   if (btn == LOW && !consumed) {
@@ -768,15 +768,27 @@ void loop() {
   const uint16_t *P = finding && (now - findT0) / 250 % 2 ? palInv : pal;  // find: inverted colors 2x a second
   tft.startWrite();
   tft.setAddrWindow(0, 0, 240, 240);
-  for (int y0 = 0; y0 < scene::N; y0 += BAND) {
+  const uint8_t *fbv = scene::view();
+  const int vn = scene::viewN(), rows = SC * BAND;  // screen rows per strip
+  static uint8_t col[240];  // screen x -> view x (nearest; the cat's game view isn't a whole multiple)
+  static int colN = 0;
+  if (colN != vn) {
+    for (int x = 0; x < 240; x++) col[x] = x * vn / 240;
+    colN = vn;
+  }
+  for (int y0 = 0; y0 < 240; y0 += rows) {
     uint16_t *p = strip;
-    for (int y = y0; y < y0 + BAND; y++) {
-      uint16_t *row = p;
-      for (const uint8_t *s = scene::fb + y * scene::N, *end = s + scene::N; s < end; s++)
-        for (int k = 0; k < SC; k++) *p++ = P[*s];
-      for (int k = 1; k < SC; k++, p += 240) memcpy(p, row, 240 * 2);
+    for (int y = y0, prev = -1; y < y0 + rows; y++, p += 240) {
+      int sy = y * vn / 240;
+      if (sy == prev) {
+        memcpy(p, p - 240, 240 * 2);
+        continue;
+      }
+      const uint8_t *s = fbv + sy * vn;
+      for (int x = 0; x < 240; x++) p[x] = P[s[col[x]]];
+      prev = sy;
     }
-    tft.writePixels(strip, 240 * SC * BAND, true, true);
+    tft.writePixels(strip, 240 * rows, true, true);
   }
   tft.endWrite();
 

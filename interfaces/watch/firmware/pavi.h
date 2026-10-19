@@ -812,7 +812,7 @@ void roveStep(float dt) {
     else if (!blocked(b)) lane = b;
   }
   float to = lane * LANE - pX;  // glide sideways, easing in and out
-  pV += (clampf(to * 6, -3.2f, 3.2f) - pV) * fminf(1, 10 * dt);
+  pV += (clampf(to * (game.on ? 10 : 6), -(game.on ? 5 : 3.2f), game.on ? 5 : 3.2f) - pV) * fminf(1, 10 * dt);  // the game: a snappier lane change
   pX += pV * dt;
   camX += (0.6f * pX - camX) * fminf(1, 3 * dt);  // 0.6: a side lane stays inside the round screen
   if (hopY < 0 || hopV < 0) {
@@ -989,8 +989,8 @@ void drawRove() {
 // ---- Game: the trip, steered. Tilt the keychain left / right for that lane, hold it level for the middle one.
 // Whatever stands in her lane comes at her: one hit and it's over. Score = obstacles passed; it speeds up as it goes.
 // The firmware feeds the sideways tilt (gameTilt), restarts after a game over and reads `game.ended`. ----
-const float GSPEED0 = 6, GSPEED_UP = 0.5f, GSPEED_MAX = 12;  // units/s; +GSPEED_UP every 5 points
-const float TILT_IN = 0.35f, TILT_OUT = 0.2f;  // g sideways: past IN = side lane (~20°), back under OUT = middle
+const float GSPEED0 = 4, GSPEED_UP = 0.1f, GSPEED_MAX = 12;  // units/s; +GSPEED_UP every second played
+const float TILT_IN = 0.17f, TILT_OUT = 0.09f;  // g sideways: past IN = side lane (~10°), back under OUT = middle
 
 void finish() {  // stats and the event for the firmware
   game.newBest = pet::gameOver(game.score);
@@ -1023,7 +1023,7 @@ void gameStep(float dt) {
     if (game.t > 10) game.on = false, pose(IDLE, 1);
     return;
   }
-  if (!game.fixedSpeed) game.speed = fminf(GSPEED0 + GSPEED_UP * (game.score / 5), GSPEED_MAX);
+  if (!game.fixedSpeed) game.speed = fminf(GSPEED0 + GSPEED_UP * game.t, GSPEED_MAX);
   float me0 = dist + ZP;
   roveStep(dt);
   for (auto &o : obs)  // swept over this frame's travel: at top speed a frame moves her farther than an obstacle is deep

@@ -22,6 +22,8 @@ uint8_t (*PAL)[3] = kitty::PAL;
 uint8_t NCOL = kitty::NCOL, INK = kitty::INK, CREAM = kitty::CREAM;
 pet::Game &game = pet::runner;
 
+inline uint8_t *view() { return cur ? fb : kitty::view; }  // what goes on screen: the cat's game has a wider one
+inline int viewN() { return cur ? N : kitty::VN; }
 inline void px(int x, int y, uint8_t c) { cur == 2 ? nausicaa::px(x, y, c) : cur ? pavi::px(x, y, c) : kitty::px(x, y, c); }
 void init() { kitty::init(), pavi::init(), nausicaa::init(); }
 void step(float dt) { cur == 2 ? nausicaa::step(dt) : cur ? pavi::step(dt) : kitty::step(dt); }
