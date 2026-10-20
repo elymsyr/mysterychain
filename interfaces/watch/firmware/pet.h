@@ -14,9 +14,9 @@ namespace pet {
 const float FULL_H = 7, HAPPY_H = 16, ENERGY_H = 16, SLEEP_H = 8;
 const float FEED = 35, FULL_REFUSE = 90, MSG_JOY = 8, PET_JOY = 5, MSG_COOL_S = 60, STEP_JOY = 1, GAME_COST = 10, GAME_MIN = 0;
 const uint32_t MAX_OFFLINE_S = 48 * 3600;  // time off counts as sleep, up to this much
-const uint8_t VERSION = 4;                 // file layout version: a mismatch = start fresh
+const uint8_t VERSION = 5;                 // file layout version: a mismatch = start fresh
 
-const int LOOKS = 3;
+const int LOOKS = 5;
 
 struct Saved {
   uint8_t version = VERSION;
@@ -26,7 +26,7 @@ struct Saved {
   uint32_t savedUnix = 0;                    // local time of the save in s, 0 = unknown
   uint8_t vib = 1, nightFrom = 23, nightTo = 7;  // motor on, night window (sleep + quiet), from == to: none
   float shakeG = 0.5f;
-  char names[LOOKS][13] = {PET_NAME, "Pavi", "Nausicaa"};  // one per look (pets.h order); a single scene uses [0]
+  char names[LOOKS][13] = {PET_NAME, "Pavi", "Nausicaa", "Gandalf", "Sauron"};  // one per look (pets.h order); a single scene uses [0]
   uint8_t scene = 0;  // pets.h: which look the pet has (0 cat, 1 Pavi, 2 Nausicaa)
 };
 Saved s;
