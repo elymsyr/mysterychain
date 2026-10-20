@@ -22,7 +22,9 @@ enum : uint8_t {
   FAR, FAR2, TOWER, TOWER2, MTN, MTN2, ROCK, ROCK2, ROCKL, CRUST, SHADOW,                // land: tinted by the clock
   LAVA, LAVA2, EYER, EYEO, EYEY, BEAM,
   INK, ARMORL, ARMOR, ARMOR2, ARMOR3, CLOAK, CLOAK2, LINING, LINING2, SLIT, SLIT2, GOLD, GOLD2,
-  SMOKE, SMOKE2, CREAM, DROP, FLAKE, FLASH, NCOL
+  SMOKE, SMOKE2, CREAM, DROP, FLAKE, FLASH,
+  FLOOR, FLOOR2, WALL, WALLD, ROBE, BEARD, SKIN, CLOAKG, LEATHER, HAIR, PALE, PALE2,  // the maze game: not tinted
+  NCOL
 };
 uint8_t PAL[NCOL][3] = {};
 const uint8_t FIXED[NCOL - LAVA][3] = {
@@ -32,6 +34,9 @@ const uint8_t FIXED[NCOL - LAVA][3] = {
     {255, 150, 50}, {200, 70, 30},   {240, 196, 70},  {196, 136, 30},               // visor glow x2, the Ring x2
     {84, 74, 74},   {54, 46, 48},    {250, 240, 220},                               // smoke x2, cream (bubble)
     {150, 120, 120}, {150, 144, 140}, {255, 220, 210},                              // rain, ash, lightning flash
+    {62, 50, 46},   {52, 42, 40},    {150, 124, 104}, {96, 76, 66},                 // maze floor x2, wall, its shade
+    {150, 150, 162}, {236, 236, 240}, {228, 182, 142}, {56, 112, 48},               // Gandalf's robe, beard; skin; Frodo's cloak
+    {120, 78, 40},  {58, 38, 24},    {176, 186, 150}, {120, 200, 230},              // Aragorn's leather, hair; Gollum, his eyes
 };
 const uint8_t SKYLOOK[4][MOON + 1][3] = {  // pet::NIGHT, DAWN, DAY, DUSK: sky top to horizon; ash cloud, its shade; ember, sun, moon
     {{12, 6, 8}, {26, 10, 12}, {52, 16, 14}, {96, 30, 18}, {38, 26, 26}, {24, 16, 16}, {255, 120, 60}, {200, 80, 40}, {170, 150, 140}},
@@ -81,9 +86,21 @@ float h01(int i) {
   h ^= h >> 15, h *= 2246822519u, h ^= h >> 13;
   return (h & 0xffff) / 65536.0f;
 }
+// The maze game draws at twice the resolution (HN x HN, 1.5 screen px a step instead of 3): px() then paints a 2 x 2
+// block, shifted hx, hy half px, so the Ring, the Fellowship and the scrolling maze move in half px.
+const int HN = 2 * N;
+uint8_t hi[HN * HN];
+bool hiOn = false;
+int hx = 0, hy = 0;
 inline void px(int x, int y, uint8_t c) {
-  if ((unsigned)x < N && (unsigned)y < N) fb[y * N + x] = c;
+  if (hiOn) {
+    x = 2 * x + hx, y = 2 * y + hy;
+    for (int k = 0; k < 4; k++)
+      if ((unsigned)(x + (k & 1)) < HN && (unsigned)(y + (k >> 1)) < HN) hi[(y + (k >> 1)) * HN + x + (k & 1)] = c;
+  } else if ((unsigned)x < N && (unsigned)y < N) fb[y * N + x] = c;
 }
+uint8_t *view() { return hiOn ? hi : fb; }  // what goes on screen
+int viewN() { return hiOn ? HN : N; }
 // Tapered capsule: radius r0 at (x0, y0) to r1 at (x1, y1).
 void cone(float x0, float y0, float r0, float x1, float y1, float r1, uint8_t c) {
   float dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy + 1e-6f, r = fmaxf(r0, r1);
@@ -320,7 +337,7 @@ void drawSauron() {
   px(ringX, ringY, GOLD);
 }
 
-void drawEye() {
+void drawEye(float EX = sauron::EX, float EY = sauron::EY) {  // the tower's top, or anywhere (the maze's middle)
   float f = eyeFlare, rx = 3 + 1.4f * f, ry = 1.8f + 0.7f * f;
   for (int k = 0; k < 10; k++) {  // licking flames around it
     float a = k * 0.628f + T * 2.5f, r = rx + 1 + h01(k + int(T * 12)) * (1.2f + 1.8f * f);
@@ -472,7 +489,351 @@ void init() {
   tint(clockMin);
 }
 
+// ---- Game: the Ring's road to the Eye. A round maze seen from above, the Eye in its middle; tilt rolls the Ring
+// through it. Reach the Eye and the next maze is a ring wider (it grows past the screen: the view follows the Ring and
+// an arrow on the rim points to the Eye). From level 2 the Fellowship walks it at random, one more each level
+// (Gandalf, Frodo, Aragorn, Gollum, again): touch one and it's lost. Gollum is quicker and drawn to the Ring. ----
+const int MAXR = 11, MAXC = 512, W = 8, C0 = 10;    // rings at most; cells at most; ring width, the Eye's room radius
+const int RMAX = C0 + MAXR * W, WN = 2 * RMAX + 4;  // the walls' bitmap: WN x WN world px, the middle at WN / 2
+const float SPEED_G = 320, RESP = 10, VMAX = 55, DEAD_G = 0.015f;  // px/s per g of tilt; 1/s to reach it; px/s; dead zone
+const float RING_R = 1.5f, HIT_R = 3.5f, INTRO_S = 1.2f, WIN_S = 1.6f;  // Ring and touch radius px; level start, won
+const int MAXW = 8;
+
+pet::Game &game = pet::runner;  // score: mazes solved (shared with the other scenes)
+uint8_t ringN[MAXR + 1];
+uint16_t ringOff[MAXR + 2];
+uint8_t link_[MAXC];  // bit 0: open to the next cell clockwise, bit 1: open inward; bit 7 visited while building
+uint8_t wallBits[(WN * WN + 7) / 8];
+struct {
+  int level, rings;
+  float t, wonT;                  // since the level started; since the Eye was reached, -1 = not yet
+  float x, y, vx, vy, camX, camY;  // the Ring, world px from the middle (y down); the view's middle
+  float gx, gy, zx, zy;           // tilt in g (from the zero), the zero (the hold at the start)
+  bool zeroed;
+  int killer;
+} mz;
+enum { GANDALF_W, FRODO, ARAGORN, GOLLUM };
+struct Walker {
+  float r, a, tr, ta, speed, phase;  // polar position, target (arc first, then radial)
+  int cell, prev;
+  uint8_t kind;
+  bool on;
+} walkers[MAXW];
+
+const float TAU = 6.2832f;
+float wrapPi(float a) { return a - TAU * floorf((a + 3.1416f) / TAU); }
+float midR(int i) { return i ? C0 + (i - 0.5f) * W : 0; }
+int ringOf(int c) {
+  int i = 0;
+  while (c >= ringOff[i + 1]) i++;
+  return i;
+}
+float cellA(int c) { int i = ringOf(c); return (c - ringOff[i] + 0.5f) * TAU / ringN[i]; }
+bool doubled(int i) { return i > 1 && ringN[i] == 2 * ringN[i - 1]; }
+int cw(int c) { int i = ringOf(c); return ringOff[i] + (c - ringOff[i] + 1) % ringN[i]; }
+int ccw(int c) { int i = ringOf(c); return ringOff[i] + (c - ringOff[i] + ringN[i] - 1) % ringN[i]; }
+int parent(int c) { int i = ringOf(c); return i <= 1 ? 0 : ringOff[i - 1] + (c - ringOff[i]) / (doubled(i) ? 2 : 1); }
+int adj(int c, int *out) {  // the cells next to c (not the middle), walls or not
+  int i = ringOf(c), n = 0;
+  if (!i) return 0;
+  out[n++] = cw(c), out[n++] = ccw(c);
+  if (i > 1) out[n++] = parent(c);
+  if (i < mz.rings) {
+    int k = c - ringOff[i], d = doubled(i + 1);
+    for (int j = 0; j <= d; j++) out[n++] = ringOff[i + 1] + (d ? 2 * k + j : k);
+  }
+  return n;
+}
+bool linked(int a, int b) {
+  if (b == cw(a) && ringOf(a) == ringOf(b) && (link_[a] & 1)) return true;
+  if (a == cw(b) && ringOf(a) == ringOf(b) && (link_[b] & 1)) return true;
+  if (ringOf(a) > ringOf(b)) return parent(a) == b && (link_[a] & 2);
+  if (ringOf(b) > ringOf(a)) return parent(b) == a && (link_[b] & 2);
+  return false;
+}
+int ways(int c, int *out, bool toEye) {  // open neighbors; the middle only with toEye
+  int all[5], n = adj(c, all), m = 0;
+  for (int k = 0; k < n; k++)
+    if (linked(c, all[k])) out[m++] = all[k];
+  if (toEye && ringOf(c) == 1 && (link_[c] & 2)) out[m++] = 0;
+  return m;
+}
+int cellAt(float x, float y) {  // -1 = outside the maze
+  float r = hypotf(x, y);
+  if (r < C0) return 0;
+  int i = 1 + int((r - C0) / W);
+  if (i > mz.rings) return -1;
+  float a = atan2f(y, x);
+  return ringOff[i] + int((a < 0 ? a + TAU : a) / TAU * ringN[i]) % ringN[i];
+}
+inline bool solid(float x, float y) {
+  int u = floorf(x + WN / 2), v = floorf(y + WN / 2);
+  return (unsigned)u >= WN || (unsigned)v >= WN || (wallBits[(v * WN + u) >> 3] >> ((v * WN + u) & 7) & 1);
+}
+float outerR() { return C0 + mz.rings * W; }
+
+void buildMaze(int rings) {  // ring 1 has 8 cells; a ring doubles them when its cells would be 2 wide
+  mz.rings = rings, ringN[0] = 1, ringOff[0] = 0, ringOff[1] = 1;
+  for (int i = 1; i <= rings; i++) {
+    int n = i == 1 ? 8 : ringN[i - 1];
+    if (i > 1 && TAU * midR(i) / n >= 2 * W) n *= 2;
+    ringN[i] = n, ringOff[i + 1] = ringOff[i] + n;
+  }
+  int cells = ringOff[rings + 1];
+  memset(link_, 0, sizeof link_);
+  static uint16_t stack[MAXC];  // depth-first, from a random outer cell: one way between any two cells
+  int sp = 0, s0 = ringOff[rings] + int(rnd() * ringN[rings]);
+  link_[s0] = 0x80, stack[sp++] = s0;
+  while (sp) {
+    int c = stack[sp - 1], all[5], free_[5], n = adj(c, all), m = 0;
+    for (int k = 0; k < n; k++)
+      if (!(link_[all[k]] & 0x80)) free_[m++] = all[k];
+    if (!m) { sp--; continue; }
+    int b = free_[int(rnd() * m)];
+    if (ringOf(b) == ringOf(c)) link_[b == cw(c) ? c : b] |= 1;
+    else link_[ringOf(b) > ringOf(c) ? b : c] |= 2;
+    link_[b] |= 0x80, stack[sp++] = b;
+  }
+  link_[ringOff[1] + int(rnd() * ringN[1])] |= 2;  // the one door into the Eye's room
+  for (int c = 0; c < cells; c++) link_[c] &= 3;
+  memset(wallBits, 0, sizeof wallBits);  // walls ~1.2 px thick, everything outside the maze solid
+  float out = outerR(), TH = 0.6f;
+  for (int v = 0; v < WN; v++)
+    for (int u = 0; u < WN; u++) {
+      float x = u + 0.5f - WN / 2, y = v + 0.5f - WN / 2, r = hypotf(x, y);
+      bool wall = r > out + TH;
+      if (!wall && r > C0 - TH) {
+        float a = atan2f(y, x);
+        if (a < 0) a += TAU;
+        int j = lroundf((r - C0) / W);  // the nearest circle: between ring j and j + 1
+        if (fabsf(r - C0 - j * W) < TH) wall = j >= rings || !(link_[ringOff[j + 1] + int(a / TAU * ringN[j + 1]) % ringN[j + 1]] & 2);
+        int i = 1 + int((r - C0) / W);
+        if (!wall && r >= C0 && i <= rings) {  // the spokes between cells
+          float q = a / TAU * ringN[i];
+          int kb = lroundf(q);
+          if (fabsf(q - kb) * TAU * r / ringN[i] < TH) wall = !(link_[ringOff[i] + (kb + ringN[i] - 1) % ringN[i]] & 1);
+        }
+      }
+      if (wall) wallBits[(v * WN + u) >> 3] |= 1 << ((v * WN + u) & 7);
+    }
+}
+
+void camFollow() {  // the view: still when it all fits, else on the Ring (no lag: it'd jitter), not past the maze's edge
+  bool fits = outerR() < 39;
+  float tx = fits ? 0 : mz.x, ty = fits ? 0 : mz.y, lim = fmaxf(0, outerR() - 34), d = hypotf(tx, ty);
+  if (d > lim) tx *= lim / d, ty *= lim / d;
+  mz.camX = tx, mz.camY = ty;
+}
+void place(Walker &w, int c) { w.cell = w.prev = c, w.r = w.tr = midR(ringOf(c)), w.a = w.ta = cellA(c), w.phase = rnd() * 6; }
+void startLevel() {
+  mz.level++, mz.t = 0, mz.wonT = -1;
+  buildMaze(2 + mz.level < MAXR ? 2 + mz.level : MAXR);  // 3 rings first: all on screen
+  int c0 = ringOff[mz.rings] + int(rnd() * ringN[mz.rings]);  // the Ring starts in the outer ring
+  mz.x = midR(mz.rings) * cosf(cellA(c0)), mz.y = midR(mz.rings) * sinf(cellA(c0)), mz.vx = mz.vy = 0;
+  int n = mz.level - 1 < MAXW ? mz.level - 1 : MAXW, cells = ringOff[mz.rings + 1];
+  for (int k = 0; k < MAXW; k++) {
+    Walker &w = walkers[k];
+    w.on = k < n;
+    if (!w.on) continue;
+    w.kind = k % 4, w.speed = fminf(8 + 1.5f * mz.level, 22) * (w.kind == GOLLUM ? 1.35f : 1);
+    int c = 1;
+    for (int tries = 0; tries < 40; tries++) {  // far from the Ring
+      c = 1 + int(rnd() * (cells - 1));
+      float r = midR(ringOf(c));
+      if (hypotf(r * cosf(cellA(c)) - mz.x, r * sinf(cellA(c)) - mz.y) > 30) break;
+    }
+    place(w, c);
+  }
+  camFollow();
+}
+
+void walk(Walker &w, float dt) {  // along the corridors: arc to the target's angle, then in or out to its ring
+  w.phase += dt * w.speed * 0.6f;
+  float step = w.speed * dt, da = wrapPi(w.ta - w.a);
+  if (fabsf(da) * w.r > 0.01f) {
+    float s = fminf(step / w.r, fabsf(da));
+    w.a = wrapPi(w.a + (da > 0 ? s : -s));
+    return;
+  }
+  w.a = w.ta;
+  if (fabsf(w.tr - w.r) > 0.01f) {
+    w.r += clampf(w.tr - w.r, -step, step);
+    return;
+  }
+  int nb[5], m = ways(w.cell, nb, false), pick = -1;  // there: the next cell, not back unless it's a dead end
+  if (w.kind == GOLLUM && rnd() < 0.5f) {  // he smells the Ring: the way that gets closest
+    float best = 1e9f;
+    for (int k = 0; k < m; k++) {
+      float r = midR(ringOf(nb[k])), d = hypotf(r * cosf(cellA(nb[k])) - mz.x, r * sinf(cellA(nb[k])) - mz.y);
+      if (d < best) best = d, pick = nb[k];
+    }
+  } else {
+    int fw[5], f = 0;
+    for (int k = 0; k < m; k++)
+      if (nb[k] != w.prev) fw[f++] = nb[k];
+    pick = f ? fw[int(rnd() * f)] : m ? nb[0] : w.cell;
+  }
+  w.prev = w.cell, w.cell = pick, w.tr = midR(ringOf(pick));
+  w.ta = ringOf(pick) < ringOf(w.prev) ? w.a : cellA(pick);  // inward: straight in (its angle is in the parent's span)
+}
+
+bool ringHits(float x, float y) {
+  if (solid(x, y)) return true;
+  for (int k = 0; k < 8; k++)
+    if (solid(x + RING_R * cosf(k * 0.785f), y + RING_R * sinf(k * 0.785f))) return true;
+  return false;
+}
+
+bool unstick(float &x, float &y, bool alongX) {  // free here, or a nudge across the move away; false = blocked
+  static const float D[] = {0, 0.35f, -0.35f, 0.7f, -0.7f, 1.05f, -1.05f};
+  for (float d : D)
+    if (!ringHits(x + alongX * d, y + !alongX * d)) return x += alongX * d, y += !alongX * d, true;
+  return false;
+}
+
+void finish() {
+  game.newBest = pet::gameOver(game.score);
+  game.ended = true;
+}
+
+void gameStart() {
+  game = pet::Game();
+  game.on = true, game.labelY = 11, hiOn = true;
+  mz = {}, mz.wonT = -1;
+  startLevel();
+}
+
+void gameStop() {  // left with a long hold, or by find; back to Mordor
+  if (game.on && !game.dead && game.score > 0) finish();
+  game.on = hiOn = false;
+  init();
+}
+
+void gameInput(bool held) { game.held = held; }  // the button only restarts after a game over (the firmware)
+void gameTilt(float) {}
+void gameTilt2(float right, float down) {  // gravity along the screen in g; the hold at the start is level
+  if (!mz.zeroed) mz.zx = right, mz.zy = down, mz.zeroed = true;
+  float x = right - mz.zx, y = down - mz.zy;
+  mz.gx = fabsf(x) < DEAD_G ? 0 : x - copysignf(DEAD_G, x), mz.gy = fabsf(y) < DEAD_G ? 0 : y - copysignf(DEAD_G, y);
+}
+
+void gameStep(float dt) {
+  T += dt, game.t += dt, mz.t += dt;
+  eyeFlare += ((mz.wonT >= 0 ? 1 : game.dead ? 0 : 0.2f) - eyeFlare) * fminf(1, dt * 5);
+  eyeLook = clampf(mz.x / 12, -1, 1);
+  if (game.dead) {
+    if (game.t > 10) gameStop();
+    return;
+  }
+  if (mz.wonT >= 0) {  // the Eye takes the Ring
+    mz.wonT += dt, mz.x *= expf(-6 * dt), mz.y *= expf(-6 * dt);
+    if (mz.wonT > WIN_S) startLevel();
+    return;
+  }
+  float wx = SPEED_G * mz.gx, wy = SPEED_G * mz.gy, w = hypotf(wx, wy), k = fminf(1, RESP * dt);  // tilt = speed
+  if (w > VMAX) wx *= VMAX / w, wy *= VMAX / w;
+  mz.vx += (wx - mz.vx) * k, mz.vy += (wy - mz.vy) * k;
+  int n = 1 + int(hypotf(mz.vx, mz.vy) * dt / 0.4f);
+  for (int i = 0; i < n; i++) {  // a step at a time, x then y: it slides along a wall, up to 1 px sideways round a curve
+    mz.x += mz.vx * dt / n;
+    if (!unstick(mz.x, mz.y, false)) mz.x -= mz.vx * dt / n, mz.vx *= -0.2f;
+    mz.y += mz.vy * dt / n;
+    if (!unstick(mz.x, mz.y, true)) mz.y -= mz.vy * dt / n, mz.vy *= -0.2f;
+  }
+  if (hypotf(mz.x, mz.y) < C0 - 4) {
+    mz.wonT = 0, game.score++, game.buzz = 1;
+    return;
+  }
+  if (mz.t > INTRO_S)
+    for (int j = 0; j < MAXW; j++) {
+      Walker &w = walkers[j];
+      if (!w.on) continue;
+      walk(w, dt);
+      if (hypotf(w.r * cosf(w.a) - mz.x, w.r * sinf(w.a) - mz.y) < HIT_R) {
+        game.dead = true, game.t = 0, mz.killer = j, game.buzz = 2;
+        finish();
+        return;
+      }
+    }
+  camFollow();
+}
+
+// The Fellowship, 5 x 7 from above-front, and the Ring.
+const char *const FOLK[4][7] = {
+    {"..R..", ".RRR.", "RRRRR", ".SBS.", ".BBB.", "RBBBR", ".R.R."},   // Gandalf: hat, beard, grey robe
+    {".HHH.", "HSSSH", ".SSS.", "GGGGG", "GGGGG", ".GGG.", ".S.S."},   // Frodo: curls, the green cloak, bare feet
+    {"HHHHH", "HSSSH", "HSHSH", "LGGGL", "LLLLL", ".LLL.", ".H.H."},   // Aragorn: dark hair, stubble, leather
+    {".....", ".PPP.", "PEPEP", ".PPP.", "P.P.P", ".QPQ.", "P...P"}};  // Gollum: big eyes, thin limbs
+uint8_t folkC(char ch) {
+  switch (ch) {
+    case 'R': return ROBE; case 'B': return BEARD; case 'S': return SKIN; case 'G': return CLOAKG;
+    case 'H': return HAIR; case 'L': return LEATHER; case 'P': return PALE; case 'Q': return LEATHER; case 'E': return PALE2;
+  }
+  return INK;
+}
+int cam2x, cam2y;  // the view's middle in half px
+void anchor(float wx, float wy, int &x, int &y) {  // world point -> px() coordinates and the half px shift (hx, hy)
+  int vx = lroundf(2 * wx) - cam2x + N, vy = lroundf(2 * wy) - cam2y + N;
+  x = vx >> 1, y = vy >> 1, hx = vx & 1, hy = vy & 1;  // >> floors negatives too
+}
+void drawFolk(const Walker &w) {
+  int x, y;
+  anchor(w.r * cosf(w.a), w.r * sinf(w.a) - (sinf(w.phase * 3) > 0) * 0.5f, x, y);  // a half px bob as they walk
+  for (int r = 0; r < 7; r++)
+    for (int c = 0; c < 5; c++)
+      if (FOLK[w.kind][r][c] != '.') px(x - 2 + c, y - 4 + r, folkC(FOLK[w.kind][r][c]));
+}
+
+void gameDraw() {
+  cam2x = lroundf(2 * mz.camX), cam2y = lroundf(2 * mz.camY);
+  int u0 = (cam2x - N) >> 1, v0 = (cam2y - N) >> 1, bx, by;  // the world px at the view's top left
+  anchor(u0, v0, bx, by);
+  float out = outerR();
+  for (int j = 0; j <= N; j++)
+    for (int i = 0; i <= N; i++) {
+      int u = u0 + i, v = v0 + j;
+      uint8_t c;
+      if (u * u + v * v > (out + 1) * (out + 1)) {  // the lava sea around the maze
+        float g = sinf(u * 0.35f + T * 1.1f) + sinf(v * 0.3f - T * 0.8f) + sinf((u + v) * 0.2f + T * 0.5f);
+        c = g > 1.4f ? LAVA2 : g > -0.4f + 0.5f * bayer(u, v) ? LAVA : CRUST;
+      } else if (solid(u, v)) c = solid(u, v + 1) ? WALL : WALLD;
+      else c = h01(u * 131 + v * 7919) < 0.25f ? FLOOR2 : FLOOR;
+      px(bx + i, by + j, c);
+    }
+  int ex, ey;
+  anchor(0, 0, ex, ey);
+  if (hypotf(mz.camX, mz.camY) < 50) drawEye(ex, ey);
+  for (int j = 0; j < MAXW; j++)
+    if (walkers[j].on && !(game.dead && j == mz.killer && fmodf(game.t, 0.4f) < 0.2f)) drawFolk(walkers[j]);
+  if (!(game.dead && fmodf(game.t, 0.3f) < 0.15f) && !(mz.wonT > 0.6f)) {  // the Ring: gold, its hole, a glint
+    int rx, ry;
+    anchor(mz.x, mz.y, rx, ry);
+    const char *R[4] = {".YY.", "Y..y", "Y..y", ".yy."};
+    for (int r = 0; r < 4; r++)
+      for (int c = 0; c < 4; c++)
+        if (R[r][c] != '.') px(rx - 2 + c, ry - 2 + r, R[r][c] == 'Y' ? GOLD : GOLD2);
+    if (fmodf(T, 1.5f) < 0.15f) px(rx - 1, ry - 2, CREAM);
+  }
+  hx = hy = 0;  // the arrow, and the firmware's bubble after this, on the plain grid
+  float d = hypotf(mz.camX, mz.camY);  // the Eye off screen: an arrow on the rim
+  if (d > 31) {
+    float ux = -mz.camX / d, uy = -mz.camY / d, tx = N / 2 + ux * 36, ty = N / 2 + uy * 36;
+    uint8_t c = fmodf(T, 0.8f) < 0.4f ? EYEY : EYEO;
+    capsule(tx, ty, tx - 4 * ux + 3 * uy, ty - 4 * uy - 3 * ux, 0.7f, c);
+    capsule(tx, ty, tx - 4 * ux - 3 * uy, ty - 4 * uy + 3 * ux, 0.7f, c);
+  }
+}
+
+// Bubble text: the level as it starts, the result after a game over, else nothing (the maze needs the screen).
+void gameLabel(char *out, int cap) {
+  int best = pet::best() > game.score ? pet::best() : game.score;
+  if (game.dead) snprintf(out, cap, game.newBest ? "NEW BEST %d" : "%d BEST %d", game.score, best);
+  else if (mz.t < INTRO_S + 0.6f && mz.wonT < 0) snprintf(out, cap, "LEVEL %d", mz.level);
+  else out[0] = 0;
+}
+
 void step(float dt) {
+  if (game.on) return gameStep(dt), gameDraw();
   update(dt);
   weatherStep(dt);
   memcpy(fb, bg, sizeof fb);

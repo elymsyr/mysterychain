@@ -4,6 +4,8 @@
 //   /tmp/lotr_g <out dir> [clip]
 // The Gandalf build first runs the bridge game's self-check (a bot that plays it right never cracks the bridge, one
 // that never presses breaks it).
+// The Sauron build first runs the maze's: every cell reachable at every size, a bot rolls the Ring to the Eye through
+// each level's maze (nobody in the way).
 #include <cassert>
 #include <cstdio>
 #include <functional>
@@ -19,6 +21,13 @@ using namespace gandalf;
 #include "glcdfont.c"
 
 const float FRAME_S = 1 / 25.f;
+#ifdef SAURON
+uint8_t *VIEW() { return view(); }  // the maze game draws finer
+int VN() { return viewN(); }
+#else
+uint8_t *VIEW() { return fb; }
+int VN() { return N; }
+#endif
 
 // ---- firmware.ino's speech bubble (as in preview.cpp) ----
 int clipL = 0, clipR = 80;
@@ -75,19 +84,17 @@ void run(const Clip &c, const char *dir) {
     c.act(t, t + FRAME_S);
     step(FRAME_S);
     if (msg[0] && t - msgT0 <= msgDur) bubble(msg, t - msgT0);
-#ifndef SAURON
     if (game.on) {
       char s[24];
       gameLabel(s, sizeof s);
-      bubble(s, t, game.labelY);
+      if (s[0]) bubble(s, t, game.labelY);
     }
-#endif
     uint8_t pal[256][3] = {};
     memcpy(pal, PAL, sizeof PAL);
     fwrite(pal, 1, sizeof pal, f);
     static uint8_t scr[240 * 240];
     for (int y = 0; y < 240; y++)
-      for (int x = 0; x < 240; x++) scr[y * 240 + x] = fb[y * N / 240 * N + x * N / 240];
+      for (int x = 0; x < 240; x++) scr[y * 240 + x] = VIEW()[y * VN() / 240 * VN() + x * VN() / 240];
     fwrite(scr, 1, sizeof scr, f);
   }
   fclose(f);
@@ -132,10 +139,76 @@ void selfCheck() {
 }
 #endif
 
-int main(int argc, char **argv) {
-#ifndef SAURON
-  selfCheck();
+#ifdef SAURON
+// The maze bot: knows the way (breadth-first from the Eye), tilts toward the next cell, damped. Doesn't dodge anyone.
+int toEye[MAXC];
+void plan() {
+  static int q[MAXC];
+  int cells = ringOff[mz.rings + 1], h = 0, n = 0;
+  for (int c = 0; c < cells; c++) toEye[c] = -1;
+  toEye[0] = 0;
+  for (int c = 1; c <= ringN[1]; c++)
+    if (link_[c] & 2) toEye[c] = 1, q[n++] = c;
+  while (h < n) {
+    int c = q[h++], nb[5], m = ways(c, nb, false);
+    for (int k = 0; k < m; k++)
+      if (toEye[nb[k]] < 0) toEye[nb[k]] = toEye[c] + 1, q[n++] = nb[k];
+  }
+}
+void mazeBot(bool play) {
+  static float lastT = 1e9f;
+  if (!mz.zeroed || !play) return gameTilt2(0, 0);
+  if (mz.t < lastT) plan();  // a new maze
+  lastT = mz.t;
+  int c = cellAt(mz.x, mz.y);
+  if (c <= 0) return gameTilt2(-mz.x * 0.03f, -mz.y * 0.03f);
+  int nb[5], m = ways(c, nb, true), nx = nb[0];
+  for (int k = 0; k < m; k++)
+    if (toEye[nb[k]] < toEye[nx]) nx = nb[k];
+  int i = ringOf(c), j = ringOf(nx);
+  float a = atan2f(mz.y, mz.x), r = midR(j), ta = cellA(nx);
+  if (j < i) ta = cellA(c);  // in: from the middle of its cell, straight in
+  if (j != i && fabsf(wrapPi(a - ta)) * hypotf(mz.x, mz.y) > 1.5f) r = midR(i);  // in or out: along to the door first
+  float tx = r * cosf(ta), ty = r * sinf(ta);
+  auto g = [](float v) { return clampf(v / SPEED_G + copysignf(DEAD_G, v), -0.3f, 0.3f); };  // past the dead zone
+  gameTilt2(g(6 * (tx - mz.x)), g(6 * (ty - mz.y)));
+}
+void selfCheck() {
+  for (int rings = 3; rings <= MAXR; rings++) {  // every cell reachable from the Eye
+    buildMaze(rings);
+    plan();
+    for (int c = 0; c < ringOff[rings + 1]; c++) assert(toEye[c] >= 0);
+    assert(ringOff[rings + 1] <= MAXC);
+  }
+  printf("maze cells at %d rings: %d, outer radius %.0f px\n", MAXR, ringOff[MAXR + 1], outerR());
+  init(), gameStart();  // idle on level 1: nobody there, nothing happens
+  for (float t = 0; t < 20; t += 0.045f) mazeBot(false), step(0.045f);
+  assert(!game.dead && game.score == 0);
+  gameStop();
+  init(), gameStart();  // with nobody in the way it solves every size
+  for (int lvl = 1; lvl <= MAXR; lvl++) {
+    mz.level = lvl - 1, startLevel();
+    for (auto &w : walkers) w.on = false;
+    float t = 0;
+    for (; t < 300 && mz.wonT < 0; t += 0.045f) mazeBot(true), step(0.045f);
+    printf("maze level %d (%d rings): solved in %.1f s\n", lvl, mz.rings, t);
+    fflush(stdout);
+    assert(mz.wonT >= 0);
+  }
+  gameStop();
+  for (int k = 0; k < 3; k++) {  // with the Fellowship (the bot doesn't dodge): not asserted
+    init(), gameStart();
+    float t = 0;
+    for (; t < 300 && !game.dead; t += 0.045f) mazeBot(true), step(0.045f);
+    printf("maze bot, not dodging: score %d, caught after %.0f s\n", game.score, t);
+    gameStop();
+  }
+  pet::best() = 0;
+}
 #endif
+
+int main(int argc, char **argv) {
+  selfCheck();
   const char *dir = argc > 1 ? argv[1] : ".";
   auto idle = [](float, float) {};
   using namespace pet;
@@ -152,6 +225,11 @@ int main(int argc, char **argv) {
       {"storm", 22 * 60, STORM, 8, idle},
       {"ash_snow", 13 * 60, SNOW, 6, idle},
       {"daycycle", -2, CLEAR, 12, idle},
+      {"maze", 13 * 60, CLEAR, 40, [](float a, float) { if (a == 0) gameStart(); mazeBot(true); }},
+      {"maze_big", 13 * 60, CLEAR, 30, [](float a, float) {
+         if (a == 0) gameStart(), mz.level = 6, startLevel();
+         mazeBot(true);
+       }},
 #else
       {"shire", 11 * 60, CLOUDY, 6, idle},
       {"shire_smoke", 16 * 60, CLOUDY, 5, [](float a, float b) { if (at(a, b, 0.3f)) smoke(); }},

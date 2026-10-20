@@ -43,6 +43,8 @@ const uint8_t TAP_THS = 2;           // IMU tap threshold, x 0.5 g at the 16 g r
 const uint32_t SAVE_S = 600;         // stats saved to flash this often (and on feed, settings, new best, power off)
 const int TILT_AXIS = 1;             // Pavi's and Nausicaa's games: accel axis along the screen's left-right (0 x, 1 y, 2 z; check on the device)
 const float TILT_SIGN = -1;          // ... and its sign: tilted right must read + (-1 flips it)
+const int TILT2_AXIS = 0;            // Sauron's maze also rolls up-down: the accel axis along the screen's top-bottom (check on the device)
+const float TILT2_SIGN = -1;         // ... and its sign: bottom edge tilted down must read +
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 LSM6DS3 imu(I2C_MODE, 0x6A);
@@ -469,7 +471,7 @@ void drawBubble(uint32_t now) {
   if (scene::game.on) {  // a message covers the score for its time, the game goes on
     char g[24];
     scene::gameLabel(g, sizeof g);
-    bubble(g, scene::INK, 0, now, y);  // scroll clock: plain millis, so a score change doesn't restart the scroll
+    if (g[0]) bubble(g, scene::INK, 0, now, y);  // empty: no bubble (Sauron's maze needs the screen)  // scroll clock: plain millis, so a score change doesn't restart the scroll
   }
 #endif
 }
@@ -696,11 +698,17 @@ void loop() {
     }
   }
   if (scene::game.on) scene::gameInput(btn == LOW && !consumed);
-  if (scene::game.on && imuOk) {  // sideways tilt steers Pavi's and Nausicaa's games (the runner ignores it)
+  if (scene::game.on && imuOk) {  // sideways tilt steers Pavi's and Nausicaa's games, both axes Sauron's maze (the runner ignores it)
     static float tilt = 0;
     float a = TILT_AXIS == 0 ? imu.readFloatAccelX() : TILT_AXIS == 1 ? imu.readFloatAccelY() : imu.readFloatAccelZ();
     tilt += (TILT_SIGN * a - tilt) * 0.6f;  // low-pass: a hand jolt or the motor doesn't flip the lane
     scene::gameTilt(tilt);
+    if (scene::cur == 4) {
+      static float tilt2 = 0;
+      float b = TILT2_AXIS == 0 ? imu.readFloatAccelX() : TILT2_AXIS == 1 ? imu.readFloatAccelY() : imu.readFloatAccelZ();
+      tilt2 += (TILT2_SIGN * b - tilt2) * 0.6f;
+      scene::gameTilt2(tilt, tilt2);
+    }
   }
   if (btn == LOW && !consumed) {
     if (!scene::game.on && !longBuzzed && now - downT >= GAME_HOLD_MS) longBuzzed = true, buzz(1);  // "release now"
