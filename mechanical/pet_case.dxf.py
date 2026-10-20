@@ -25,7 +25,7 @@ SCALE = 2.0
 SW, SH = 420 / SCALE, 297 / SCALE      # A3 landscape in model units
 MM = 1 / SCALE                         # 1 mm on paper, in model units
 SHEET_GAP = 20
-REV, DATE, DRAWN = "v7", "2026-10-16", "O. Eren"
+REV, DATE, DRAWN = "v7.2", "2026-10-20", "O. Eren"
 FONT = "LiberationSans"
 
 H, RI, RO = pc.H, pc.RI, pc.RO
@@ -550,11 +550,11 @@ def sheet_midframe(doc, idx, n):
         "4. Display clamp legs 4x %%c2.4 at 40/140/205/335 deg press on the display PCB edge.\\P"
         "5. The lug plate sets the orientation (no key tabs). Hook notches: 4 on the rim at 20/160/230/310 deg, "
         "2 on the lug sides.\\P"
-        "6. XIAO tape pad 8 x 8 for 0.5 mm double-sided tape; stop rib 12 wide at the antenna end takes the "
-        "USB insertion force.\\P"
+        "6. XIAO pin rails x = +-6.75..+-9.3, 2 x 7 holes %%c0.9 at x = +-7.62, pitch 2.54: the header pins press in "
+        "and carry the USB-C force (tune PIN_HOLE_D). Tape pad 8 x 8 for 0.5 mm tape; stop rib 12 wide at the antenna end.\\P"
         "7. Battery side ribs 0.8 thick x 2 high. Battery switch EG1390 between two 0.8 end stops beside the "
         "XIAO, actuator through the 1.4 x 3.4 slot.\\P"
-        "8. Reset hole %%c2 (pin, cover off). Print plate down, no supports."), notes_at=(154, 72), notes_w=50)
+        "8. Reset hole %%c2 (pin, cover off). Print plate down, no supports."), notes_at=(154, 77), notes_w=50)
     return sh
 
 
@@ -635,13 +635,14 @@ BOM = [
     (2, "Midframe", 1, "PETG, drawing MC-M-003"),
     (3, "Back cover", 1, "PETG, drawing MC-M-004"),
     (4, "GC9A01 1.28in round TFT", 1, "Teyleten Robot module, 7-pin header removed"),
-    (5, "XIAO nRF52840 Sense", 1, "Seeed Studio; taped to the midframe pad"),
+    (5, "XIAO nRF52840 Sense", 1, "Seeed Studio; header pins in the midframe rails"),
     (6, "Vibration motor 10 x 3", 1, "Coin type, adhesive, in the lug skin ring"),
     (7, "USB-C plug, tethered", 1, "TPU 95A, usb_plug.step"),
     (8, "Tact switch 3 x 6", 1, "4.3 high; power + menu button"),
     (9, "LiPo 402030", 1, "3.7 V ~200 mAh, 20 x 30 x 4, beside the XIAO"),
     (10, "Round screen protector", 1, "%%c38-40, bonded on the front face"),
     (11, "Slide switch EG1390", 1, "Battery switch, on the midframe (MC-M-003)"),
+    (12, "Male pin header 2 x 7, 2.54", 1, "On the XIAO, spacer off, 4.3 behind the PCB"),
 ]
 
 

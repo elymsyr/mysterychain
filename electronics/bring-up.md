@@ -76,7 +76,7 @@ USB cable only, nothing soldered.
 
 ## Phase 3: Bench prototype
 
-**Don't solder headers to the XIAO.** The case has 4.51 mm for it, headers don't fit, and removing a 14-pin header later risks lifting pads. Instead, **solder the permanent wires to the pads now, but long** (~12 cm), with one male header pin on each free end (heat-shrunk) for the breadboard. In phase 6 you shorten them; the XIAO joints never change. Flag each wire with tape naming its pin.
+**Solder the 2 × 7 header to the XIAO now, and keep it.** Since case v7.2 the header pins hold the XIAO in the midframe pin rails (they carry the USB-C force), so it stays in for good. Insert it from the component side, solder on the front; the XIAO then plugs straight into the breadboard. Solder the permanent wires onto the front pin stubs now, but long (~12 cm), with one male header pin on each free end (heat-shrunk). In phase 6 you shorten them; the XIAO joints never change. Flag each wire with tape naming its pin.
 
 Plug the display straight into the breadboard (pins down) and run the XIAO wires to its rows. Solder header pins to the motor leads.
 
@@ -179,15 +179,16 @@ Then flash a scene, turn it off with a 3 s hold and read the µA range again: T9
 The printed case must be ready. **Measure wire lengths in the printed case**, don't guess.
 
 1. **Dry fit:** display, XIAO (no tape) and midframe in the case. Measure each wire route, add 5 mm. Routes: motor driver on +X beside GND/3V3, Q2 on +X beside D7/D8, button on −X, battery leads at the XIAO's antenna end, motor wires from the lug along the tab back.
-2. **Battery out** (pin unplugged and taped) for all of this phase until step 9.
+2. **Battery out** (pin unplugged and taped) for all of this phase until step 10.
 3. **Motor driver in free air (dead-bug):** shorten the BC337 legs and lay it on its side; 10 kΩ across B–E, 1 kΩ to B; diode band to the + node (3V3), other end to C; 100 nF and 100 µF across + and −. Heat-shrink every joint, then wrap the group in Kapton. **Total height ≤ 4.3 mm.**
 4. **Q2 on its own spot** beside the XIAO's D7/D8 pads (+X, toward the antenna end; the motor group is already tight): gate straight to D7, 100 kΩ gate to source, source to 3V3 (the wire that used to feed the display), drain to the display VCC wire. SOT-23 is 2.9 × 1.3 × 1.1: heat-shrink the legs, Kapton over it.
 5. Short check, then USB and T6 and T4 (Q2 switches the display).
-6. **Remove the display header, shorten the display wires.** Pry the black plastic spacer off the header, cut the pins to ≤ 1 mm (don't desolder: pads can lift), solder the wires to the stubs and bend them flat along the PCB back. The case leaves 2.5 mm behind the tab. Short check, then T4. With short wires also try `SPI_HZ = 0` (library default); if clean, use it in T8 too.
-7. **Button.** Short check, then T5.
-8. **USB only:** T10 rows that work on USB (hold 3 s = off, plug in = on).
-9. **Battery switch SW2, last joints:** find the EG1390 common pin with the meter (it connects to either side pin). Cut one side pin off. Dry-fit it on the midframe between its end stops, actuator through the slot, and measure the leads. Solder BAT+ pad wire → common first, then **slide SW2 off**, short check across BAT+–BAT−, and only then the battery + lead (header pin cut off) → side pin. Heat-shrink, Kapton. From here on: SW2 off before any rework.
-10. **Full regression:** T8 on battery, every phase 5 test, then T10.
+6. **Cut the XIAO header for the case:** pull the black spacer off, cut the pins flush on the front (they face the display) and to 4.3 mm on the component side. Don't desolder.
+7. **Remove the display header, shorten the display wires.** Pry the black plastic spacer off the header, cut the pins to ≤ 1 mm (don't desolder: pads can lift), solder the wires to the stubs and bend them flat along the PCB back. The case leaves 2.5 mm behind the tab. Short check, then T4. With short wires also try `SPI_HZ = 0` (library default); if clean, use it in T8 too.
+8. **Button.** Short check, then T5.
+9. **USB only:** T10 rows that work on USB (hold 3 s = off, plug in = on).
+10. **Battery switch SW2, last joints:** find the EG1390 common pin with the meter (it connects to either side pin). Cut one side pin off. Dry-fit it on the midframe between its end stops, actuator through the slot, and measure the leads. Solder BAT+ pad wire → common first, then **slide SW2 off**, short check across BAT+–BAT−, and only then the battery + lead (header pin cut off) → side pin. Heat-shrink, Kapton. From here on: SW2 off before any rework.
+11. **Full regression:** T8 on battery, every phase 5 test, then T10.
 
 **Pass:** the T8 table passes end to end on battery with permanent wiring. No joint without heat-shrink.
 
@@ -200,7 +201,7 @@ Same order as [mechanical assembly](../mechanical/README.md#assembly), with T8 r
 | 1 | Display from the back: tab first, then PCB onto the step | T8 boots, text not clipped at the edge |
 | 2 | Button into its wall hole | By hand: button clicks |
 | 3 | Motor into the ring on the lug front skin | T8 short and long presses |
-| 4 | XIAO taped to the pad, battery between the side ribs, SW2 taped down between its end stops (actuator through the slot), midframe in | T7: VBAT correct, no pinched wires. **Re-measure the IMU tail**, update `MOTOR_MASK_MS`. |
+| 4 | XIAO pins pressed into the midframe rails (shield on the tape pad), battery between the side ribs, SW2 taped down between its end stops (actuator through the slot), midframe in | T7: VBAT correct, no pinched wires. **Re-measure the IMU tail**, update `MOTOR_MASK_MS`. |
 | 5 | Back cover, pressed flat | Closed-case tests below |
 
 **Closed-case tests:** SW2 through the cover slot with a toothpick: off = dead (no button, no charging), on = boots; tape over the slot; the button works from outside and `btn` counts; with T10: 3 s hold = off, ~1 s hold = on; USB plug goes all the way in and "CHG" shows; 4 perimeter + 2 lug hooks seated, cover opens at the 230° notch; cover off, a SIM pin through the midframe hole resets it (T8 uptime restarts); T3 RSSI at 1 m vs. phase 2 (more than 10 dB worse: rethink antenna clearance to motor and display) and the distance where the link drops; T8 for 30 min then charge, case no more than warm.

@@ -6,7 +6,7 @@ A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42
   <img src="mechanical/renders/front.png" alt="Case, front view" width="360">
 </p>
 
-**Status:** working on the breadboard (four scenes, BLE messaging, clock sync, find, quick reactions, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) is ready for its first print; drawings are still v6. The LiPo isn't bought yet, so nothing is assembled in the case.
+**Status:** working on the breadboard (four scenes, BLE messaging, clock sync, find, quick reactions, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) had its first PLA test print on 2026-10-16; v7.2 (fit fixes + XIAO held by its header pins in midframe rails) waits for a reprint. Drawings are current. The LiPo isn't bought yet, so nothing is assembled in the case.
 
 ## Hardware
 

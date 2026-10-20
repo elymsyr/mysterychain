@@ -64,9 +64,15 @@ XIAO_PCB_CX, XIAO_PCB_CZ = 1.805, -6.11   # STEP-local PCB center (x, z)
 XIAO_USB_FACE_X = 13.81                   # STEP-local USB-C front face
 XIAO_TOP_Y = 4.21                         # STEP-local highest point (USB-C)
 XIAO_SHIELD_Y = 3.0
+XIAO_PCB_T = 1.0                          # STEP: PCB back z = origin - 1.0
 XIAO_USB_CY = 2.11                        # USB-C height center
 USB_FACE_Y = -18.2                        # USB-C front face in the assembly (world Y)
 XIAO_RST_X, XIAO_RST_DY = -5.7, 3.4       # reset button (Seeed STEP): world X, distance from the USB-C face
+# header pins (spacer removed, cut short) stuck into the midframe pin rails: they carry the USB-C plug force
+XIAO_PIN_X, XIAO_PIN_Y0, XIAO_PIN_N = 7.62, -13.75, 7   # world, rows at +-X, pitch 2.54 toward +Y
+PIN_HOLE_D = 0.9         # 0.64 square pin (diag 0.905): prints ~0.8 -> pin presses in. Tune after the first print.
+PIN_RAIL_X = (6.75, 9.3)  # inner edge clears the reset hole + a part near the USB end; outer < passives (9.5)
+PIN_RAIL_GAP = 0.5       # rail top <-> XIAO PCB back: room for the pins' solder fillets
 
 MOTOR_D, MOTOR_T = 10.0, 3.0
 
@@ -231,6 +237,11 @@ def make_midframe():
         zbox(-4, 4, XIAO_ORIGIN[1] - 4.05, XIAO_ORIGIN[1] + 3.95, Z_DF - 0.1, shield_top - 0.5),
         zbox(-6, 6, XIAO_PCB_TOP_Y + 0.15, XIAO_PCB_TOP_Y + 1.3, Z_DF - 0.1, z(D_XIAO_BOT + 0.2)),
     ]
+    # pin rails: the XIAO's header pins press into them (USB-C plug / unplug force, X and Y)
+    pin_ys = [XIAO_PIN_Y0 + 2.54 * i for i in range(XIAO_PIN_N)]
+    rail_top = XIAO_ORIGIN[2] - XIAO_PCB_T - PIN_RAIL_GAP
+    adds += [zbox(s * PIN_RAIL_X[0], s * PIN_RAIL_X[1], pin_ys[0] - 1.0, pin_ys[-1] + 1.0, Z_DF - 0.1, rail_top)
+             for s in (-1, 1)]
     # button backer block (takes the press load)
     btn_in = RI - (RI - math.sqrt(RI**2 - (BTN_BODY[1] / 2) ** 2)) - 0.05 - BTN_BODY[0]
     adds.append(zbox(-(btn_in - 0.1), -14.6, -3.4, 3.4, Z_DF - 0.1, Z_MID + BTN_BODY[2] / 2))
@@ -248,6 +259,9 @@ def make_midframe():
     # reset access: no power switch, so a pin through here (cover off) is the way out of a hung firmware
     cuts.append(zcyl(XIAO_RST_X, USB_FACE_Y + XIAO_RST_DY, 1.0, Z_DB - 1, Z_DF + 1))
     cuts.append(battery_switch_slot(Z_DB - 1, Z_DF + 1))
+    # pin holes through rail + deck (open at the back: pin tips sit on/above the cover)
+    cuts += [zcyl(s * XIAO_PIN_X, XIAO_PIN_Y0 + 2.54 * i, PIN_HOLE_D / 2, Z_DB - 1, Z_DF + 10)
+             for s in (-1, 1) for i in range(XIAO_PIN_N)]
     # hook arms pass the midframe edge (keeps arm length)
     cuts += [Pos(0, dy, 0) * sector_box(r - 1.4, r + 0.5, HOOK_W + 0.8, Z_DB - 1, Z_DF + 1, a) for r, a, dy in HOOKS]
     return deck.cut(*cuts).clean()
@@ -323,6 +337,11 @@ def gen_step():
     asm.add_module("electronics", [
         asm.feature(make_display(), "gc9a01_display_module", color=srgb("#1F5FA8")),
         asm.feature(make_xiao(), "xiao_nrf52840_sense"),
+        # header pins: flush at the PCB front, cut 0.2 short of the cover
+        asm.feature(Compound([zbox(s * XIAO_PIN_X - 0.32, s * XIAO_PIN_X + 0.32, y - 0.32, y + 0.32,
+                                   Z_DB + 0.2, XIAO_ORIGIN[2])
+                              for s in (-1, 1) for y in (XIAO_PIN_Y0 + 2.54 * i for i in range(XIAO_PIN_N))]),
+                    "xiao_header_pins", color=srgb("#D4AF37")),
         asm.feature(motor, "vibration_motor", color=srgb("#B5B5B5")),
         asm.feature(make_button(), "tact_button", color=srgb("#333333")),
         asm.feature(battery, "lipo_402030", color=srgb("#C9A227")),
