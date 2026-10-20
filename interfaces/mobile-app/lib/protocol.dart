@@ -28,6 +28,12 @@ Settings? parseSettings(String line) {
   );
 }
 
+// Each look's game high score, board order; a single-scene board sends one
+List<int>? parseBest(String line) {
+  final m = RegExp(r'^best (\d+(?:\|\d+)*)$').firstMatch(line);
+  return m?[1]!.split('|').map(int.parse).toList();
+}
+
 Game? parseGame(String line) {
   final m = RegExp(r'^game (\d+) best (\d+)$').firstMatch(line);
   return m == null ? null : (score: int.parse(m[1]!), best: int.parse(m[2]!));

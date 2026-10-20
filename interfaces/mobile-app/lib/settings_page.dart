@@ -56,14 +56,57 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Future<void> reset(String? look) async {
+    final what = look == null ? 'all high scores' : 'the high score of ${live.names[look] ?? looks[look]}';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: surface,
+        title: Text('Reset $what?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Reset')),
+        ],
+      ),
+    );
+    if (ok == true) widget.k.resetBest(look);
+  }
+
+  List<Widget> scores() {
+    final best = widget.k.best;
+    return [
+      Row(children: [
+        const Expanded(child: Text('High scores', style: label)),
+        TextButton(onPressed: best.values.any((v) => v > 0) ? () => reset(null) : null, child: const Text('Reset all')),
+      ]),
+      for (final look in looks.keys.where(best.containsKey))
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: Text(live.names[look] ?? looks[look]!),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('${best[look]}', style: const TextStyle(fontSize: 15)),
+            IconButton(
+              icon: const Icon(Icons.restart_alt, size: 20),
+              color: text2,
+              tooltip: 'Reset',
+              onPressed: best[look]! > 0 ? () => reset(look) : null,
+            ),
+          ]),
+        ),
+    ];
+  }
+
   List<Widget> pet() {
     final nightOn = s.from != s.to;
     return [
         const Text('Character', style: label),
         const SizedBox(height: 8),
         CharacterList(widget.k),
-        const Text('Each has its own name; stats and high score are shared', style: hint),
+        const Text('Each has its own name and high score; stats are shared. Triple tap on the keychain = next one', style: hint),
         const SizedBox(height: 16),
+        const Divider(),
+        ...scores(),
         const Divider(),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

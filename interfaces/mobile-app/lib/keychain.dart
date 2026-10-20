@@ -21,6 +21,7 @@ class Keychain extends ChangeNotifier {
   StreamSubscription? _sub;
   Stats? stats; // null: not a pet scene, or nothing heard yet
   Settings? settings;
+  Map<String, int> best = {}; // each look's game high score
   bool ringing = false; // Find is running on the board
   final events = <PetEvent>[];
 
@@ -101,7 +102,11 @@ class Keychain extends ChangeNotifier {
       stats = s;
     } else if (parseSettings(text) case final s?) {
       settings = s;
+    } else if (parseBest(text) case final b?) {
+      final scene = settings?.scene ?? 'cat'; // comes right after `settings`
+      best = b.length == 1 ? {scene: b[0]} : {for (final (i, l) in looks.keys.indexed) if (i < b.length) l: b[i]};
     } else if (parseGame(text) case final g?) {
+      if (settings case final s?) best = {...best, s.scene: g.best};
       log(Kind.pet, Icons.sports_esports_outlined, 'Game: ${g.score} (best ${g.best})');
     } else if (text == 'fed') {
       log(Kind.pet, Icons.restaurant, 'Ate');
@@ -123,6 +128,9 @@ class Keychain extends ChangeNotifier {
     notifyListeners();
     return send('#set $cmd');
   }
+
+  // look: one look's high score back to 0, null: all of them. The board answers with `settings` and `best`.
+  Future<bool> resetBest(String? look) => send('#set best ${look ?? 'all'}');
 
   Future<bool> say(String text) async {
     final sent = await send(text);

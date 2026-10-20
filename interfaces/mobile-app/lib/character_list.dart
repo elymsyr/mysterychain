@@ -1,5 +1,5 @@
 // The board's looks, one per row: tap picks it (tick on the current one), the pencil renames it. Each look keeps its
-// own name on the board; stats and high score are shared.
+// own name and game high score on the board; stats are shared.
 import 'package:flutter/material.dart';
 
 import 'keychain.dart';

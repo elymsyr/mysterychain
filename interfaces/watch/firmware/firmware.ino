@@ -6,7 +6,7 @@
 // Button tap: the character cheers; once the phone has sent the time, the clock shows in the bubble (pets: with the
 // weather icon once the phone has sent the forecast).
 // Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
-// pets.h holds the five pets, the cat, Pavi, Nausicaa, Gandalf and Sauron; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = the look's game,
+// pets.h holds the five pets, the cat, Pavi, Nausicaa, Gandalf and Sauron; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, triple tap = next look, hold 1-3 s = the look's game,
 // double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
 // screen when the phone's track changes (the character travels, the title scrolls over the sky).
 // No motion and no button for IDLE_OFF_MS: the screen goes dark (display cut by Q2); a shake or the button wakes it.
@@ -35,7 +35,7 @@ const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call
 const uint32_t MUSIC_MS = 12000;     // pet scenes: the music screen stays at least this long after a track change
 // Pet scene only:
 const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: runner game (a buzz says "release now")
-const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for a second one (double tap = feed)
+const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for another one (double tap = feed, triple = next look)
 const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double tap on the case inside it is petting
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
 const uint32_t WX_MS = 4 * 3600000;  // a forecast (#weather) covers this long: no new one by then = weather unknown again
@@ -212,6 +212,10 @@ void sendSettings() {
   for (int i = 0; i < looks; i++) o += snprintf(line + o, sizeof line - o, i ? "|%s" : "%s", pet::s.names[i]);  // per look
   snprintf(line + o, sizeof line - o, "\n");
   tell(line);
+  o = snprintf(line, sizeof line, "best ");  // each look's game high score, same order
+  for (int i = 0; i < looks; i++) o += snprintf(line + o, sizeof line - o, i ? "|%u" : "%u", pet::s.best[i]);
+  snprintf(line + o, sizeof line - o, "\n");
+  tell(line);
 }
 
 void retint();
@@ -245,7 +249,9 @@ bool setting(const char *a) {  // "#set <a>"; false: not a setting, shows as tex
   }
 #ifdef SCENE_PICK
   else if (!strncmp(a, "scene ", 6) && scene::find(a + 6) >= 0) pet::s.scene = scene::find(a + 6), pickScene();
+  else if (!strncmp(a, "best ", 5) && scene::find(a + 5) >= 0) pet::s.best[scene::find(a + 5)] = 0;  // reset one look's high score
 #endif
+  else if (!strcmp(a, "best all")) memset(pet::s.best, 0, sizeof pet::s.best);
   else return false;
   return true;
 }
@@ -254,6 +260,28 @@ void feed() {  // double tap on the button or #feed
   if (pet::feed()) scene::eat(), tell("fed\n"), petSave();
   else scene::refuse(), tell("full\n");
   sendStats(true);
+}
+
+#ifdef SCENE_PICK
+const uint8_t MAX_TAPS = 3;
+#else
+const uint8_t MAX_TAPS = 2;  // no look to switch: a double tap feeds at once
+#endif
+void tapAction(uint8_t n) {  // a run of short button presses, once it's over
+  if (n == 1) {
+    if (syncLocal) showClock();
+    scene::cheer();
+  } else if (n == 2) feed();
+#ifdef SCENE_PICK
+  else {  // triple tap: the next look, its name in the bubble
+    pet::s.scene = (pet::s.scene + 1) % scene::COUNT;
+    pickScene();
+    snprintf(msg, sizeof msg, "%s", pet::s.names[pet::s.scene]);
+    show(1, scene::INK, false);
+    petSave();
+    sendSettings();
+  }
+#endif
 }
 
 void retint() {  // sky colors for the current minute (night look without a clock) and the weather
@@ -677,10 +705,11 @@ void loop() {
   bool released = changed && btn == HIGH;
   static uint32_t btnT = 0;  // last button edge, for TAP_GUARD_MS
   if (pressed || released) btnT = now;
-  // Tap: clock after TAP_WAIT_MS; double tap: feed; hold 1-3 s and release: game; hold 3 s: off.
+  // Tap: clock after TAP_WAIT_MS; double tap: feed; triple tap (pets.h): next look; hold 1-3 s and release: game; hold 3 s: off.
   // In the game: the button is the jump (held = higher; Pavi steers by tilt instead, Nausicaa steers by tilt and fires), a press after a game over restarts, hold 3 s leaves.
   static uint32_t downT = 0, tapT = 0;
-  static bool tapPending = false, second = false, consumed = false, longBuzzed = false;  // consumed: this press is used up
+  static uint8_t taps = 0;  // short presses in this run, each within TAP_WAIT_MS of the last
+  static bool tapPending = false, consumed = false, longBuzzed = false;  // consumed: this press is used up
   if (pressed) {
     downT = now, longBuzzed = false, consumed = false;
     if (finding) {  // the press that ends a find is not a normal press
@@ -694,7 +723,8 @@ void loop() {
       snprintf(line, sizeof line, "button %lu\n", ++presses);
       tell(line);
       buzz(1);
-      if (tapPending) tapPending = false, second = true;
+      if (tapPending) tapPending = false;  // the run goes on
+      else taps = 0;
     }
   }
   if (scene::game.on) scene::gameInput(btn == LOW && !consumed);
@@ -719,17 +749,13 @@ void loop() {
   }
   if (released) {
     if (!consumed && !scene::game.on) {
-      if (now - downT >= GAME_HOLD_MS) second = false, startGame();
-      else if (second) second = false, feed();
+      if (now - downT >= GAME_HOLD_MS) taps = 0, startGame();
+      else if (++taps >= MAX_TAPS) tapAction(taps), taps = 0;  // nothing longer to wait for
       else tapPending = true, tapT = now;
     }
     consumed = false;
   }
-  if (tapPending && now - tapT >= TAP_WAIT_MS) {
-    tapPending = false;
-    if (syncLocal) showClock();
-    scene::cheer();
-  }
+  if (tapPending && now - tapT >= TAP_WAIT_MS) tapPending = false, tapAction(taps), taps = 0;
   if (scene::game.ended) {
     scene::game.ended = false;
     snprintf(line, sizeof line, "game %d best %u\n", scene::game.score, pet::best());

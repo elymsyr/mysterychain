@@ -16,6 +16,8 @@ void main() {
     expect(parseStats('stats x happy'), isNull);
     expect(parseSettings('button 3'), isNull);
     expect(parseGame('game over'), isNull);
+    expect(parseBest('best 3|0|17|0|5'), [3, 0, 17, 0, 5]);
+    expect(parseBest('best '), isNull);
   });
 
   test('board lines update the screen state or land in the activity list', () {
@@ -29,5 +31,10 @@ void main() {
     expect(k.settings?.vib, isFalse);
     expect(k.ringing, isFalse);
     expect(k.events.map((e) => e.text), ['found', 'Ate']); // newest first; stats/settings aren't events
+    k
+      ..onLine('settings vib=1 shake=0.45 night=23-7 scene=pavi name=Cat|Pavi|Nau|Gan|Sau')
+      ..onLine('best 3|0|17|0|5')
+      ..onLine('game 9 best 9');
+    expect(k.best, {'cat': 3, 'pavi': 9, 'nausicaa': 17, 'gandalf': 0, 'sauron': 5}); // a game over updates its look
   });
 }
