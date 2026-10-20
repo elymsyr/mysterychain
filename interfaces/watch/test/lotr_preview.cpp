@@ -75,6 +75,7 @@ bool at(float t0, float t1, float when) { return t0 < when && when <= t1; }
 void run(const Clip &c, const char *dir) {
   msg[0] = 0, msgT0 = -1;
   pet::wx = c.wx, snowCover = c.wx == pet::SNOW ? 0.8f : 0, boltT = 1.5f;
+  setMood(pet::HAPPY), music(false);
   init();
   tint(c.minute < -1 ? 0 : c.minute);
   for (int i = 0; i < 10; i++) step(FRAME_S);
@@ -207,8 +208,57 @@ void selfCheck() {
 }
 #endif
 
+// The pet side, for both: mood -> state, events, the music screen's ride / flight, nothing during the game.
+#ifdef SAURON
+int &ST() { return s.st; }
+#else
+int &ST() { return g.st; }
+#endif
+void run(float secs) {
+  for (float t = 0; t < secs; t += 0.04f) step(0.04f);
+}
+void petCheck() {
+  setMood(pet::HAPPY), music(false), init();
+  setMood(pet::SLEEP), run(1);
+  assert(ST() == SLEEP);
+  music(true), run(0.5f);
+  assert(!rove && ST() == SLEEP);  // asleep, he sleeps on
+  music(false), cheer(), run(0.2f);
+  assert(ST() == SLEEP);  // one eye opens
+  shake(), run(0.1f);
+  assert(ST() == WAKE);
+  run(2);
+  assert(ST() == SLEEP);  // dozes off again
+  setMood(pet::HAPPY), run(4);
+  assert(ST() != SLEEP && ST() != HUNGRY && ST() != SAD);
+  setMood(pet::HUNGRY), run(0.5f);
+  assert(ST() == HUNGRY);
+  eat(), run(0.1f);
+  assert(ST() == DRINK);
+  setMood(pet::SAD), run(3.5f);
+  assert(ST() == SAD);
+  setMood(pet::HAPPY), run(0.2f);
+  music(true), run(1);
+  assert(rove);
+  shake(), cheer(), run(1);
+  assert(rove);
+  music(false), run(0.1f);
+  assert(!rove && ST() == IDLE);
+  travel(2), run(3);
+  assert(!rove);  // a ride of his own ends by itself
+  music(true), run(0.2f), eat(), run(0.1f);
+  assert(!rove && ST() == DRINK);  // fed on the way: the ride ends
+  music(false), run(3.5f);
+  gameStart(), music(true), eat(), run(0.2f);
+  assert(!rove);
+  gameStop(), music(false);
+  setMood(pet::HAPPY), init();
+  printf("pet check ok\n");
+}
+
 int main(int argc, char **argv) {
   selfCheck();
+  petCheck();
   const char *dir = argc > 1 ? argv[1] : ".";
   auto idle = [](float, float) {};
   using namespace pet;
@@ -225,6 +275,26 @@ int main(int argc, char **argv) {
       {"storm", 22 * 60, STORM, 8, idle},
       {"ash_snow", 13 * 60, SNOW, 6, idle},
       {"daycycle", -2, CLEAR, 12, idle},
+      {"sleep", 23 * 60, CLEAR, 7, [](float a, float b) {
+         if (a == 0) setMood(pet::SLEEP);
+         if (at(a, b, 2.5f)) say("Uyu", b);
+         if (at(a, b, 5)) shake();
+       }},
+      {"drink", 13 * 60, CLEAR, 4, [](float a, float b) { if (at(a, b, 0.3f)) eat(); }},
+      {"refuse", 13 * 60, CLEAR, 2, [](float a, float b) { if (at(a, b, 0.3f)) refuse(); }},
+      {"gloat", 13 * 60, CLEAR, 3, [](float a, float b) { if (at(a, b, 0.3f)) purr(); }},
+      {"yawn", 15 * 60, CLOUDY, 3, [](float a, float b) { if (at(a, b, 0.3f)) yawn(); }},
+      {"hungry", 13 * 60, CLEAR, 7, [](float a, float b) {
+         if (a == 0) setMood(pet::HUNGRY);
+         if (at(a, b, 5)) eat(), setMood(pet::HAPPY);
+       }},
+      {"sad", 18 * 60, RAIN, 7, [](float a, float) { if (a == 0) setMood(pet::SAD); }},
+      {"flight", 13 * 60, CLEAR, 9, [](float a, float b) {
+         music(a > 0.2f && a < 8);
+         if (at(a, b, 3)) cheer();
+         if (at(a, b, 5)) shake();
+       }},
+      {"flight_night_storm", 23 * 60, STORM, 6, [](float a, float) { music(a > 0.2f); }},
       {"maze", 13 * 60, CLEAR, 40, [](float a, float) { if (a == 0) gameStart(); mazeBot(true); }},
       {"maze_big", 13 * 60, CLEAR, 30, [](float a, float) {
          if (a == 0) gameStart(), mz.level = 6, startLevel();
@@ -245,6 +315,26 @@ int main(int argc, char **argv) {
       {"grey_to_white", 12 * 60, CLOUDY, 5, [](float a, float b) { if (at(a, b, 0.6f)) pet::wx = CLEAR; }},
       {"white_to_grey", 12 * 60, CLEAR, 5, [](float a, float b) { if (at(a, b, 0.6f)) pet::wx = RAIN; }},
       {"daycycle", -2, CLOUDY, 12, idle},
+      {"sleep", 23 * 60, CLOUDY, 7, [](float a, float b) {
+         if (a == 0) setMood(pet::SLEEP);
+         if (at(a, b, 2.5f)) say("Iyi geceler", b);
+         if (at(a, b, 5)) shake();
+       }},
+      {"drink", 12 * 60, CLOUDY, 4, [](float a, float b) { if (at(a, b, 0.3f)) eat(); }},
+      {"refuse", 12 * 60, CLOUDY, 2, [](float a, float b) { if (at(a, b, 0.3f)) refuse(); }},
+      {"chuckle", 12 * 60, CLEAR, 3, [](float a, float b) { if (at(a, b, 0.3f)) purr(); }},
+      {"yawn", 15 * 60, RAIN, 3, [](float a, float b) { if (at(a, b, 0.3f)) yawn(); }},
+      {"hungry", 12 * 60, CLOUDY, 7, [](float a, float b) {
+         if (a == 0) setMood(pet::HUNGRY);
+         if (at(a, b, 5)) eat(), setMood(pet::HAPPY);
+       }},
+      {"sad", 18 * 60, RAIN, 7, [](float a, float) { if (a == 0) setMood(pet::SAD); }},
+      {"ride", 12 * 60, CLOUDY, 8, [](float a, float b) {
+         music(a > 0.2f && a < 7);
+         if (at(a, b, 3)) cheer();
+         if (at(a, b, 5)) shake();
+       }},
+      {"ride_white_rain", 21 * 60, RAIN, 5, [](float a, float) { music(a > 0.2f); }},
       {"bridge", 22 * 60, CLOUDY, 40, [](float a, float) { if (a == 0) gameStart(); bot(true); }},
       {"bridge_lost", 22 * 60, CLOUDY, 16, [](float a, float) { if (a == 0) gameStart(); bot(a < 4); }},
 #endif

@@ -27,7 +27,7 @@ struct Saved {
   uint8_t vib = 1, nightFrom = 23, nightTo = 7;  // motor on, night window (sleep + quiet), from == to: none
   float shakeG = 0.5f;
   char names[LOOKS][13] = {PET_NAME, "Pavi", "Nausicaa", "Gandalf", "Sauron"};  // one per look (pets.h order); a single scene uses [0]
-  uint8_t scene = 0;  // pets.h: which look the pet has (0 cat, 1 Pavi, 2 Nausicaa)
+  uint8_t scene = 0;  // pets.h: which look the pet has (0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron)
 };
 Saved s;
 

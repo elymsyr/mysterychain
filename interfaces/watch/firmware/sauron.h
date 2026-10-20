@@ -1,4 +1,4 @@
-// Sauron: DRAFT scene (not a pet yet, not in pets.h). 80x80 color-indexed buffer drawn 3x like the other scenes, no
+// Sauron: a pet like the others (pet.h, pets.h look 4). 80x80 color-indexed buffer drawn 3x like the other scenes, no
 // Arduino dependency (test/lotr_preview.cpp dumps clips).
 // Always Mordor: Barad-dur with the Eye on the left, Mount Doom smoking on the right, lava cracks in the plain of
 // Gorgoroth. The clock tints it (day = murky red, night = black with the lava glowing); the weather greys it, snow
@@ -6,6 +6,9 @@
 // Animations: idle (the visor glows, the Eye roams), cheer (mace up, the Eye flares), shake (mace slam, a ring of fire
 // and cracks), the Ring (he raises it, it shines), the Eye's gaze (a beam sweeps the plain), Mount Doom erupts, a
 // Nazgul on a fell beast flies by.
+// Pet: his mood picks what he does (asleep, the Eye shut and the visor down to embers; holding up an empty goblet,
+// tapping his mace; brooding, the Eye dim); fed, he drinks a goblet of lava; full, he waves it away; petted, he laughs.
+// The music screen: he flies a fell beast over Gorgoroth (see "Flight").
 #pragma once
 #include <math.h>
 #include <stdint.h>
@@ -139,14 +142,17 @@ uint8_t code(char ch) {
   switch (ch) {
     case 'L': return ARMORL; case 'A': return ARMOR; case 'a': return ARMOR2; case 'd': return ARMOR3;
     case 'C': return CLOAK;  case 'c': return CLOAK2; case 'X': return LINING; case 'x': return LINING2;
-    case 'O': return SLIT;   case 'o': return SLIT2;  case 'Y': return GOLD;
+    case 'O': return SLIT;   case 'o': return SLIT2;  case 'Y': return GOLD;   case 'y': return GOLD2;
+    case 'V': return LAVA;   case 'v': return LAVA2;
   }
   return INK;
 }
-void blit(const char *const *rows, int h, int ax, int x, int y0) {
-  for (int r = 0; r < h; r++)
+// Rows above headR move by (hdx, hdy) (a nod, a head shake; hdy >= 0, or a gap opens): drawn bottom-up so the lowered
+// helm goes over the pauldrons.
+void blit(const char *const *rows, int h, int ax, int x, int y0, int hdx = 0, int hdy = 0, int headR = 0) {
+  for (int r = h - 1; r >= 0; r--)
     for (int c = 0; rows[r][c]; c++)
-      if (rows[r][c] != '.') px(x + c - ax, y0 + r, code(rows[r][c]));
+      if (rows[r][c] != '.') px(x + c - ax + (r < headR ? hdx : 0), y0 + r + (r < headR ? hdy : 0), code(rows[r][c]));
 }
 void art(const char *const *rows, int h, int x, int y, int flip = 1) {  // weather.h's blown leaves: here ash flakes
   int w = strlen(rows[0]);
@@ -157,9 +163,11 @@ void art(const char *const *rows, int h, int x, int y, int flip = 1) {  // weath
 
 // ---- Weather (weather.h): ash drifts right; snow falls as ash (FLAKE is grey) ----
 const int WIND_DIR = 1;
+bool rove = false;  // flying (the music screen, or a flight of his own)
+pet::Game &game = pet::runner;  // score: mazes solved (shared with the other scenes)
 float canopy(float) { return 1e9f; }
-float landRow() { return GROUND - 10 + 18 * rnd(); }
-float drift() { return 0; }
+float landRow() { return rove ? 63 + 16 * rnd() : GROUND - 10 + 18 * rnd(); }
+float drift() { return rove ? -50 : 0; }  // flying into the rain
 bool airy(uint8_t c) { return c <= MOON; }
 void thunder();
 #include "weather.h"
@@ -264,16 +272,23 @@ const char *const ARMS[FIG_H] = {  // at rest: both arms down to the haft held a
     "", "", "", "", "", "",
 };
 const int SHL = 12, SHR = 30, SHY = 21, RINGC = 17, RINGR = 29;  // shoulders, the Ring at rest (sprite coords)
+const int HEAD_R = 12;  // sprite rows that nod with his head: the helm down to the visor
+// A goblet of lava (Y gold, V lava), column 3 over his hand; empty, the lava is dark.
+const char *const GOBLET[6] = {"KYYYYYK", "KVvVvVK", ".KyYyK.", "..KYK..", "..KyK..", ".KYYYK."};
 
-enum { IDLE, RAISE, SLAM, RING, GAZE };
+// Pet states (SLEEP, HUNGRY, SAD: dur 0 = while the mood lasts); WAKE: shaken awake, he dozes off again.
+enum { IDLE, RAISE, SLAM, RING, GAZE, SLEEP, DRINK, REFUSE, GLOAT, YAWN, HUNGRY, SAD, WAKE };
 struct {
-  float x = 44, t = 0, dur = 0;
+  float x = 44, t = 0, dur = 0, peek = 0;  // peek: s the Eye stays half open (a message while asleep)
   int st = IDLE;
 } s;
 void pose(int st, float dur) { s.st = st, s.t = 0, s.dur = dur; }
-float trickT = 9;
+float trickT = 9, yawnT = 0, tripT = 240, sighAge = -1;  // s to the next trick / tired yawn / flight; a sigh's smoke
+pet::Mood mood = pet::HAPPY;
+void setMood(pet::Mood m) { mood = m; }
+bool tipped() { return s.st == HUNGRY && fmodf(s.t, 3) > 1.6f && fmodf(s.t, 3) < 2.4f; }  // shaking the empty goblet
 
-float eyeLook = 0, eyeFlare = 0;  // pupil offset -1..1; flare 0..1 (bigger, brighter)
+float eyeLook = 0, eyeFlare = 0, eyeLid = 0;  // pupil offset -1..1; flare 0..1 (bigger, brighter); lid 0 open .. 1 shut
 float beamX = -1, beamY = 0;      // where the gaze lands, -1 = no beam
 struct Bit { float x, y, vx, vy, age; uint8_t c; bool on; } bits[32];  // lava, sparks, rock chips
 float waveAge = -1, waveX = 0, eruptT = -1, nazT = -1, plume = 0;
@@ -301,16 +316,54 @@ void mace(float hx, float hy, float mx, float my) {  // haft from a little behin
   disc(mx, my, 3.2f, INK), disc(mx, my, 2.4f, ARMOR), disc(mx + 0.7f, my - 0.7f, 1, ARMORL);
 }
 
+void slit(float pulse, float dim) {  // the visor's glow, dim 1 = full. A palette entry: the firmware rebuilds its colors on a change
+  uint8_t c[3] = {uint8_t(lroundf((200 + 55 * pulse) * dim)), uint8_t(lroundf((70 + 110 * pulse) * dim * dim)),
+                  uint8_t(lroundf((30 + 60 * pulse * pulse) * dim * dim))};
+  if (memcmp(PAL[SLIT], c, 3)) memcpy(PAL[SLIT], c, 3), pet::palDirty = true;
+}
+void zzz(float x, float y) {  // z z z rising like smoke
+  static const char *const Z[4] = {"####", "..#.", ".#..", "####"};
+  for (int k = 0; k < 3; k++) {
+    float p = fmodf(T * 0.3f + k / 3.f, 1);
+    int zx = lroundf(x + 7 * p + 1.5f * sinf(T * 2 + k)), zy = lroundf(y - 13 * p);
+    if (p < 0.85f)
+      for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+          if (Z[r][c] == '#') px(zx + c, zy + r, ARMORL);
+  }
+}
+void goblet(int x, int y, bool flip, bool empty) {  // column 3 at x, top at y
+  for (int r = 0; r < 6; r++)
+    for (int c = 0; GOBLET[r][c]; c++) {
+      char ch = GOBLET[flip ? 5 - r : r][c];
+      if (ch != '.') px(x + c - 3, y + r, empty && (ch == 'V' || ch == 'v') ? INK : code(ch));
+    }
+}
+
 float ringX, ringY;
 void drawSauron() {
   int x0 = lroundf(s.x) - AX, y0 = GROUND - FIG_H;
-  bool blaze = eyeFlare > 0.3f || s.st == SLAM || s.st == RING;
+  bool blaze = eyeFlare > 0.3f || s.st == SLAM || s.st == RING || s.st == WAKE || (s.st == DRINK && s.t > 2.2f);
   float pulse = blaze ? 1 : 0.55f + 0.45f * sinf(T * 2.2f);  // the visor's glow breathes
-  PAL[SLIT][0] = 200 + 55 * pulse, PAL[SLIT][1] = 70 + 110 * pulse, PAL[SLIT][2] = 30 + 60 * pulse * pulse;
+  float dim = s.st == SLEEP ? (s.peek > 0 ? 0.7f : 0.32f + 0.06f * sinf(T * 0.8f)) : s.st == SAD || s.st == HUNGRY ? 0.7f : 1;
+  if (s.st == GLOAT) pulse = int(s.t / 0.16f) & 1 ? 1 : 0.4f;  // a laugh
+  if (s.st == YAWN) pulse = clampf(fminf(s.t, s.dur - s.t) / 0.4f, 0.2f, 1);
+  slit(pulse, dim);
+  int hdx = 0, hdy = 0;  // the helm's nod / shake; the whole figure's hop
+  if (s.st == SLEEP) hdy = 1 + (fmodf(T, 4) < 2);
+  if (s.st == SAD || tipped()) hdy = 1;
+  if (s.st == REFUSE && s.t < 0.9f) hdx = sinf(s.t * 22) > 0 ? 1 : -1;
+  if (s.st == GLOAT) y0 -= int(s.t / 0.16f) & 1;
+  if (s.st == WAKE && s.t < 0.3f) y0 -= 2;
   ellipse(s.x, GROUND, 16, 1.6f, SHADOW);
-  blit(BODY, FIG_H, 0, x0, y0);
+  blit(BODY, FIG_H, 0, x0, y0, hdx, hdy, HEAD_R);
+  if (s.st == YAWN && s.t > 0.3f && s.t < s.dur - 0.3f)  // the visor gapes
+    fillIf(x0 + 18 + hdx, y0 + 11 + hdy, x0 + 24 + hdx, y0 + 12 + hdy, SLIT), fillIf(x0 + 20, y0 + 12 + hdy, x0 + 22, y0 + 12 + hdy, SLIT2);
+  if (sighAge >= 0) disc(x0 + 21 + 2 * sighAge, y0 + 10 - 9 * sighAge, 0.8f + 1.2f * sighAge, sighAge < 0.7f ? SMOKE : SMOKE2);
+  if (s.st == SLEEP) zzz(x0 + 27, y0 + 2);
   ringX = x0 + RINGC, ringY = y0 + RINGR;
-  if (s.st == IDLE || s.st == GAZE) return blit(ARMS, FIG_H, 0, x0, y0);
+  if (s.st != RAISE && s.st != SLAM && s.st != RING && s.st != DRINK && s.st != REFUSE && s.st != HUNGRY)
+    return blit(ARMS, FIG_H, 0, x0, y0);
 
   // the mace hand (his left, our right) and the other one, by pose
   float rx = x0 + 31, ry = y0 + 31, mx = x0 + 35, my = GROUND - 4;  // leaning on it, the head down at his side
@@ -330,16 +383,26 @@ void drawSauron() {
     float k = clampf(fminf(s.t, s.dur - s.t) / 0.5f, 0, 1);
     lx = x0 + 11 + 2 * k, ly = y0 + 33 - 21 * k;
   }
+  if (s.st == DRINK) {  // the goblet up to the visor, a draught, down again
+    float k = clampf(fminf(s.t, s.dur - s.t - 0.2f) / 0.5f, 0, 1);
+    lx = x0 + 11 + 9 * k, ly = y0 + 33 - 19 * k + (s.t > 0.5f && s.t < 2.2f ? int(s.t / 0.35f) & 1 : 0);
+  }
+  if (s.st == REFUSE) lx = x0 + 10 + 3 * sinf(s.t * 14), ly = y0 + 17;  // palm out: away with it
+  if (s.st == HUNGRY) {
+    lx = x0 + 13 + (tipped() && sinf(s.t * 30) > 0), ly = y0 + 28;
+    if (!tipped() && fmodf(s.t, 0.6f) < 0.15f) my -= 2, ry -= 1;  // drumming the mace on the ground
+  }
   ringX = lx, ringY = ly - 1;
   mace(rx, ry, mx, my);
   arm(x0 + SHL, y0 + SHY, lx, ly);
   arm(x0 + SHR, y0 + SHY, rx, ry);
-  px(ringX, ringY, GOLD);
+  if (s.st == DRINK || s.st == HUNGRY) goblet(lx, ly - 6 + tipped(), tipped(), s.st == HUNGRY);
+  else px(ringX, ringY, GOLD);
 }
 
 void drawEye(float EX = sauron::EX, float EY = sauron::EY) {  // the tower's top, or anywhere (the maze's middle)
-  float f = eyeFlare, rx = 3 + 1.4f * f, ry = 1.8f + 0.7f * f;
-  for (int k = 0; k < 10; k++) {  // licking flames around it
+  float f = eyeFlare, rx = 3 + 1.4f * f, ry = (1.8f + 0.7f * f) * (1 - 0.8f * eyeLid);
+  for (int k = 0; k < 10 - 7 * eyeLid; k++) {  // licking flames around it (shut, a few embers)
     float a = k * 0.628f + T * 2.5f, r = rx + 1 + h01(k + int(T * 12)) * (1.2f + 1.8f * f);
     px(EX + r * cosf(a), EY + r * 0.6f * sinf(a), k % 3 ? EYEO : EYER);
   }
@@ -349,7 +412,8 @@ void drawEye(float EX = sauron::EX, float EY = sauron::EY) {  // the tower's top
       if (q < 1) px(x, y, q > 0.65f ? EYER : q > 0.25f ? EYEO : EYEY);
     }
   int p = lroundf(EX + eyeLook * (rx - 1.5f));  // the slit pupil
-  for (int y = EY - 1 - (f > 0.5f); y <= EY + 1 + (f > 0.5f); y++) px(p, y, INK);
+  if (eyeLid < 0.6f)
+    for (int y = EY - 1 - (f > 0.5f); y <= EY + 1 + (f > 0.5f); y++) px(p, y, INK);
 }
 
 void drawBeam() {  // the gaze: a cone of light from the Eye to the plain, lighting what it crosses
@@ -428,11 +492,170 @@ void drawFx() {
   }
 }
 
+// ---- Flight (the music screen; now and then a flight of his own): Sauron on a fell beast over Gorgoroth, side on.
+// The Ephel Duath, the ash hills and the plain's lava cracks slide by at their depth; now and then Barad-dur passes far
+// off, the Eye on its top. ----
+const int FH = 50;        // the flight's horizon
+const float FLY_V = 60;   // px/s the plain goes by
+bool tunes = false;       // music screen on (music())
+float tripLeft = 0, dist = 0, hopY = 0, hopV = 0, cheerT = 0;  // s of flight left (0 = while the music plays); a climb
+float vn(float u) {  // smooth value noise, 0..1
+  int i = floorf(u);
+  float f = u - i;
+  f = f * f * (3 - 2 * f);
+  return h01(i) * (1 - f) + h01(i + 1) * f;
+}
+float rangeTop(float x) { float u = (x + dist * 0.07f) / 7; return 33 + 11 * fabsf(2 * vn(u) - 1) + 3 * vn(u * 2.7f + 5); }
+float hillTop(float x) { return 52 + 5 * vn((x + dist * 0.3f) / 11); }
+void travel(float secs) { rove = true, tripLeft = secs, hopY = hopV = 0, pose(IDLE, 0); }
+void endTrip() { rove = false, pose(IDLE, 0); }
+void roveStep(float dt) {
+  dist += FLY_V * dt;
+  hopV += 120 * dt, hopY = fminf(0, hopY + hopV * dt);
+  if (hopY == 0) hopV = 0;
+  cheerT = fmaxf(0, cheerT - dt);
+  if (!tunes && tripLeft > 0 && (tripLeft -= dt) <= 0) endTrip();
+}
+
+void tri(float x0, float y0, float x1, float y1, float x2, float y2, uint8_t c) {
+  for (int y = floorf(fminf(y0, fminf(y1, y2))); y <= fmaxf(y0, fmaxf(y1, y2)); y++)
+    for (int x = floorf(fminf(x0, fminf(x1, x2))); x <= fmaxf(x0, fmaxf(x1, x2)); x++) {
+      float qx = x + 0.5f, qy = y + 0.5f;
+      float a = (x1 - x0) * (qy - y0) - (y1 - y0) * (qx - x0), b = (x2 - x1) * (qy - y1) - (y2 - y1) * (qx - x1),
+            d = (x0 - x2) * (qy - y2) - (y0 - y2) * (qx - x2);
+      if ((a >= 0 && b >= 0 && d >= 0) || (a <= 0 && b <= 0 && d <= 0)) px(x, y, c);
+    }
+}
+void outlined(float x0, float y0, float r0, float x1, float y1, float r1, uint8_t c) {
+  cone(x0, y0, r0 + 0.8f, x1, y1, r1 + 0.8f, INK), cone(x0, y0, r0, x1, y1, r1, c);
+}
+// A bat wing from the shoulder (jx, jy); f: -1 down .. 1 up. Three finger bones from the wrist, the skin between them,
+// its trailing edge sagging back toward the body.
+void wing(float jx, float jy, float f, uint8_t skin, uint8_t skin2) {
+  float ex = jx - 9, ey = jy - 16 * f - 2;
+  float t[3][2] = {{jx - 36, jy - 30 * f + 2}, {jx - 37, jy - 12 * f + 9}, {jx - 19, jy + 5}};
+  tri(jx, jy, ex, ey, t[0][0], t[0][1], skin);
+  for (int i = 0; i < 2; i++) {
+    float mx = (t[i][0] + t[i + 1][0]) / 2 + 3, my = (t[i][1] + t[i + 1][1]) / 2 + (f > 0 ? 3 : -3);  // the sag
+    tri(ex, ey, t[i][0], t[i][1], mx, my, i ? skin2 : skin), tri(ex, ey, mx, my, t[i + 1][0], t[i + 1][1], skin2);
+    tri(jx, jy, ex, ey, t[i + 1][0], t[i + 1][1], skin2);
+  }
+  capsule(jx, jy, ex, ey, 1.1f, INK);
+  for (auto &p : t) capsule(ex, ey, p[0], p[1], 0.55f, INK), px(p[0] - 1, p[1], INK);
+}
+void drawBeast(float bx, float by, float f) {
+  wing(bx + 9, by - 6, f * 0.85f, CLOAK2, INK);  // the far wing, a little ahead
+  for (int i = 0; i < 6; i++) {                   // the long tail, a barb at its end
+    float x0 = bx - 14 - 3.5f * i, y0 = by + 0.6f * i + sinf(T * 4 + i * 0.8f) * 0.5f * i;
+    outlined(x0, y0, 2.2f - 0.3f * i, x0 - 3.5f, y0 + 0.6f + sinf(T * 4 + i * 0.8f + 0.8f) * 0.5f, 1.9f - 0.3f * i, CLOAK);
+  }
+  float tx = bx - 35, ty = by + 4 + sinf(T * 4 + 4.8f) * 3;
+  tri(tx - 3, ty, tx + 1, ty - 2, tx + 1, ty + 2, INK);
+  ellipse(bx, by, 16, 7.3f, INK);
+  for (int y = floorf(by - 6.5f); y <= by + 6.5f; y++)
+    for (int x = floorf(bx - 15); x <= bx + 15; x++) {
+      float u = (x + 0.5f - bx) / 15, v = (y + 0.5f - by) / 6.5f;
+      if (u * u + v * v < 1) px(x, y, v > 0.5f ? LINING2 : v > 0.2f ? CLOAK2 : v < -0.65f ? ARMOR2 : CLOAK);  // lava-lit belly
+    }
+  outlined(bx - 6, by + 5, 2, bx - 10, by + 11, 1.3f, CLOAK);  // legs tucked, talons
+  outlined(bx + 8, by + 5, 1.7f, bx + 11, by + 10, 1.1f, CLOAK);
+  px(bx - 12, by + 12, INK), px(bx - 9, by + 12, INK), px(bx + 12, by + 11, INK), px(bx + 10, by + 11, INK);
+  outlined(bx + 12, by - 2, 3.6f, bx + 19, by - 9, 2.6f, CLOAK);  // the snake neck, the head with its jaw ajar
+  outlined(bx + 19, by - 9, 2.6f, bx + 25, by - 12, 2.1f, CLOAK);
+  bool roar = cheerT > 0;
+  outlined(bx + 25, by - 12, 2.3f, bx + 33, by - 10 + roar, 1.2f, CLOAK);
+  capsule(bx + 26, by - 9, bx + 32, by - 8 + 2 * roar, 0.6f, roar ? LINING : CLOAK2);  // the lower jaw
+  px(bx + 28, by - 13, EYEO), px(bx + 27, by - 13, EYER);  // eye
+  capsule(bx + 24, by - 14, bx + 21, by - 17, 0.6f, INK), capsule(bx + 26, by - 14, bx + 24, by - 18, 0.5f, INK);  // horns
+  for (int k = 0; k < 4; k++) px(bx + 13 + 3.5f * k, by - 6.5f - 1.6f * k, ARMOR2);  // a ridge along the neck
+  wing(bx + 3, by - 5, f, ARMOR2, ARMOR3);  // the near wing
+}
+void notes(float x, float y) {  // music notes rising, blown back
+  static const char *const NOTE[2][5] = {{"..##", "..#.", "..#.", "###.", "##.."}, {"####", "#..#", "#..#", "#.##", "#.##"}};
+  for (int k = 0; k < 3; k++) {
+    float p = fmodf(T * 0.35f + k / 3.f, 1);
+    int nx = lroundf(x - 24 * p + 3 * sinf(T * 2 + k * 2)), ny = lroundf(y - 12 * p);
+    if (p < 0.85f)
+      for (int r = 0; r < 5; r++)
+        for (int c = 0; c < 4; c++)
+          if (NOTE[k % 2][r][c] == '#') px(nx + c, ny + r, ARMORL);
+  }
+}
+void drawFlight() {
+  for (int y = 0; y < N; y++)
+    for (int x = 0; x < N; x++) {
+      float v = clampf(y, 0, FH) * 3.0f / FH;
+      int b = v;
+      fb[y * N + x] = b + (v - b > bayer(x, y));
+    }
+  for (int k = 0; k < 7; k++) {  // ash clouds racing back
+    float cx = fmodf(k * 23 - dist * (0.5f + 0.1f * k) + 4000, 120) - 20, cy = 8 + 5 * k % 26;
+    for (int j = 0; j < 4; j++) disc(cx + j * 3.5f, cy + (j & 1), 2.6f - 0.3f * j, j & 1 ? CLOUD2 : CLOUD);
+  }
+  float slot = floorf((dist * 0.07f + 200) / 260);  // Barad-dur far off, every so often
+  float bt = slot * 260 - 200 - dist * 0.07f + 20;
+  if (h01(int(slot)) > 0.3f && bt > -10 && bt < N + 10) {
+    for (int y = 14; y < FH + 4; y++) {
+      float w = 1 + (y - 14) * 0.09f + (y > 40 ? (y - 40) * 0.3f : 0);
+      fillIf(lroundf(bt - w), y, lroundf(bt + w), y, TOWER);
+    }
+    px(bt - 2, 12, TOWER), px(bt + 2, 12, TOWER), px(bt - 2, 13, TOWER), px(bt + 2, 13, TOWER);
+    px(bt, 12, EYEO), px(bt - 1, 12, EYER), px(bt + 1, 12, EYER);
+  }
+  for (int x = 0; x < N; x++) {
+    float rt = rangeTop(x), ht = hillTop(x);
+    for (int y = floorf(rt); y < ht; y++) px(x, y, y < rt + 1 ? FAR : FAR2);
+    for (int y = floorf(ht); y < 63; y++) px(x, y, y < ht + 1 ? ROCKL : bayer(x, y) < 0.3f ? MTN2 : MTN);
+  }
+  for (int k = 0; k < 3; k++) {  // a smoking cone among the hills now and then
+    float sl = floorf(dist * 0.3f / 70) + k, cx = sl * 70 + 30 - dist * 0.3f;
+    if (h01(int(sl) * 3 + 1) < 0.5f) continue;
+    for (int y = 47; y < 63; y++) fillIf(lroundf(cx - (y - 47) * 0.9f - 1), y, lroundf(cx + (y - 47) * 0.9f + 1), y, y < 48 ? MTN2 : MTN);
+    px(cx, 46, fmodf(T * 3, 1) < 0.5f ? LAVA : LAVA2), px(cx - 1, 47, LAVA);
+    for (int j = 0; j < 4; j++) disc(cx - j * 3, 43 - j * 3, 1 + 0.5f * j, SMOKE);
+  }
+  for (int y = 63; y < N; y++) {  // the plain: its cracks of lava come faster the nearer they are
+    float sp = 0.5f + 0.9f * (y - 63) / 17.f;
+    for (int x = 0; x < N; x++) {
+      int u = int(x + dist * sp), cell = u / (3 + (y - 63) / 4);
+      uint8_t c = y == 63 ? ROCKL : h01(u * 31 + y * 977) < 0.15f ? ROCK2 : ROCK;
+      if (h01(cell * 13 + y * 101) < 0.035f) c = h01(cell + y) < 0.5f ? LAVA : CRUST;
+      px(x, y, c);
+    }
+  }
+  drawFlash();
+  drawDrops();
+
+  float f = sinf(T * 4.5f), bx = s.x - 10, by = 56 + 2 * sinf(T * 1.3f) - 1.2f * f + hopY;
+  int x0 = lroundf(bx) - 5 - AX, y0 = lroundf(by) - 35;
+  ellipse(bx + 2, 76, 15 + hopY * 0.2f, 1.4f, SHADOW);  // his shadow far below on the plain
+  drawBeast(bx, by, f);
+  blit(BODY, 30, 0, x0, y0);
+  float lx = x0 + 9, ly = y0 + 29, rx = x0 + 34, ry = y0 + 27 - 3 * (cheerT > 0);
+  capsule(lx, ly, bx + 16, by - 6, 0.3f, INK);  // the reins
+  mace(rx, ry, rx + 4, ry - 14 - 2 * (cheerT > 0));
+  arm(x0 + SHL, y0 + SHY, lx, ly), arm(x0 + SHR, y0 + SHY, rx, ry);
+  slit(cheerT > 0 ? 1 : 0.55f + 0.45f * sinf(T * 2.2f), 1);
+  if (tunes) notes(x0 + 6, y0 + 4);
+  drawFx();
+  drawLeaves();
+}
+
 // ---- Logic ----
 float lookT = 0;
-void shake() { pose(SLAM, 1.6f); }
+// Device shaken: the mace slams, a ring of fire. Asleep: he starts, the Eye flares, then shuts again. Flying: a climb.
+void shake() {
+  if (game.on) return;
+  if (rove) return void(hopV = -40);
+  if (s.st == SLEEP) return pose(WAKE, 1.2f);
+  pose(SLAM, 1.6f);
+}
+// Message/button: mace up, the Eye flares. Asleep: the Eye half opens for 2 s. Flying: the beast shrieks, mace up.
 void cheer() {
-  if (s.st == IDLE) pose(RAISE, 1.8f);
+  if (game.on) return;
+  if (s.st == SLEEP) return void(s.peek = 2);
+  if (rove) return void(cheerT = 1.2f);
+  if (s.st == IDLE || s.st == SAD || s.st == HUNGRY) pose(RAISE, 1.8f);
 }
 void ringUp() { pose(RING, 3.6f); }
 void gaze() { pose(GAZE, 5); }
@@ -440,32 +663,69 @@ void erupt() { eruptT = 0; }
 void nazgul() { nazT = 0; }
 float startle = 0;
 void thunder() { startle = 0.5f; }
+// Pet events (nothing during the game; a flight ends): fed (a goblet of lava), fed while full, petted, too tired to play.
+void petAct(int st, float dur) {
+  if (game.on) return;
+  rove = false;
+  pose(st, dur);
+}
+void eat() { petAct(DRINK, 3); }
+void refuse() { petAct(REFUSE, 1.2f); }
+void purr() { petAct(GLOAT, 2); }
+void yawn() { petAct(YAWN, 1.6f); }
+// Music screen on / off (the firmware calls this every frame): he flies; asleep, he sleeps on.
+void music(bool on) {
+  if (game.on) on = false;
+  if (on == tunes) return;
+  tunes = on;
+  if (on && s.st != SLEEP && mood != pet::SLEEP) travel(0);
+  else if (!on && rove && tripLeft <= 0) endTrip();
+}
 
 void update(float dt) {
   T += dt, s.t += dt;
-  startle = fmaxf(0, startle - dt);
-  float wantFlare = s.st == RAISE ? 1 : s.st == RING ? 0.8f : s.st == SLAM ? 0.7f : startle > 0 ? 1 : 0;
+  startle = fmaxf(0, startle - dt), s.peek = fmaxf(0, s.peek - dt), yawnT -= dt;
+  if (sighAge >= 0 && (sighAge += dt) > 1.5f) sighAge = -1;
+  float wantLid = s.st == SLEEP ? (s.peek > 0 || startle > 0 ? 0.5f : 1) : s.st == SAD ? 0.45f : s.st == YAWN ? 0.6f : 0;
+  eyeLid += (wantLid - eyeLid) * fminf(1, dt * 3);
+  float wantFlare = s.st == RAISE || s.st == WAKE ? 1 : s.st == RING ? 0.8f : s.st == SLAM ? 0.7f : s.st == GLOAT ? 0.6f
+                  : s.st == DRINK && s.t > 2.2f ? 0.8f : startle > 0 && s.st != SLEEP ? 1 : 0;
   eyeFlare += (wantFlare - eyeFlare) * fminf(1, dt * 5);
   if ((lookT -= dt) < 0) lookT = 1.5f + 2 * rnd(), eyeLook = rnd() * 2 - 1;  // the Eye roams
+  if (s.st == SAD) eyeLook *= 0.5f;
   beamX = -1;
+  if (rove) roveStep(dt);
   if (s.st == GAZE) {  // sweeps the plain left to right and back
     float u = s.t / s.dur;
     beamX = 6 + 68 * (0.5f - 0.5f * cosf(u * 6.2832f * 1.5f)), beamY = 62 + 8 * sinf(u * 9);
     eyeLook = clampf((beamX - EX) / 30, -1, 1);
   }
-  if (s.st == IDLE && (trickT -= dt) < 0) {
-    trickT = 10 + 10 * rnd();
-    float r = rnd();
-    if (r < 0.35f) gaze();
-    else if (r < 0.6f) ringUp();
-    else if (r < 0.8f) erupt();
-    else nazgul();
+  if (s.st == IDLE && !rove) {
+    if (mood == pet::SLEEP) pose(SLEEP, 0);
+    else if (mood == pet::HUNGRY) pose(HUNGRY, 0);
+    else if (mood == pet::SAD) pose(SAD, 0);
+    else if (mood == pet::TIRED && yawnT <= 0) yawnT = 30, pose(YAWN, 1.6f);
+    else if (mood == pet::HAPPY && (tripT -= dt) < 0) tripT = 200 + 100 * rnd(), travel(12 + 8 * rnd());
+    else if ((trickT -= dt * (mood == pet::TIRED ? 0.5f : 1)) < 0) {  // tired: tricks half as often
+      trickT = 10 + 10 * rnd();
+      float r = rnd();
+      if (r < 0.35f) gaze();
+      else if (r < 0.6f) ringUp();
+      else if (r < 0.8f) erupt();
+      else nazgul();
+    }
   }
+  if (s.st == SLEEP && mood != pet::SLEEP) pose(YAWN, 1.6f);
+  if ((s.st == HUNGRY && mood != pet::HUNGRY) || (s.st == SAD && mood != pet::SAD)) pose(IDLE, 0);
+  if (s.st == HUNGRY && fmodf(s.t, 3) > 2 && fmodf(s.t - dt, 3) <= 2)  // the last drop out of the goblet
+    for (auto &b : bits)
+      if (!b.on) { b = {lroundf(s.x) - AX + 13.f, GROUND - FIG_H + 28.f, 0, 4, 0, LAVA2, true}; break; }
+  if (s.st == SAD && fmodf(s.t, 6) > 4 && fmodf(s.t - dt, 6) <= 4) sighAge = 0;
   if (s.st == SLAM && s.t > 0.5f && s.t - dt <= 0.5f) {
     waveAge = 0, waveX = lroundf(s.x) - AX + 41;
     spray(waveX, GROUND - 1, 14, 30, 10, LAVA);
   }
-  if (s.st != IDLE && s.t >= s.dur) pose(IDLE, 0);
+  if (s.st != IDLE && s.dur > 0 && s.t >= s.dur) pose(IDLE, 0);
   if (waveAge >= 0 && (waveAge += dt) > 1.1f) waveAge = -1;
   plume = 0;
   if (eruptT >= 0) {
@@ -483,7 +743,8 @@ void update(float dt) {
 }
 
 void init() {
-  s = {}, trickT = 9, waveAge = -1, eruptT = -1, nazT = -1;
+  s = {}, trickT = 9, yawnT = 0, waveAge = -1, eruptT = -1, nazT = -1, sighAge = -1, eyeLid = 0;
+  rove = false, hopY = hopV = cheerT = 0;
   for (auto &b : bits) b.on = false;
   buildBg();
   tint(clockMin);
@@ -499,7 +760,6 @@ const float SPEED_G = 320, RESP = 10, VMAX = 55, DEAD_G = 0.015f;  // px/s per g
 const float RING_R = 1.5f, HIT_R = 3.5f, INTRO_S = 1.2f, WIN_S = 1.6f;  // Ring and touch radius px; level start, won
 const int MAXW = 8;
 
-pet::Game &game = pet::runner;  // score: mazes solved (shared with the other scenes)
 uint8_t ringN[MAXR + 1];
 uint16_t ringOff[MAXR + 2];
 uint8_t link_[MAXC];  // bit 0: open to the next cell clockwise, bit 1: open inward; bit 7 visited while building
@@ -698,7 +958,7 @@ void finish() {
 
 void gameStart() {
   game = pet::Game();
-  game.on = true, game.labelY = 11, hiOn = true;
+  game.on = true, game.labelY = 11, hiOn = true, rove = false, eyeLid = 0;
   mz = {}, mz.wonT = -1;
   startLevel();
 }
@@ -836,6 +1096,7 @@ void step(float dt) {
   if (game.on) return gameStep(dt), gameDraw();
   update(dt);
   weatherStep(dt);
+  if (rove) return drawFlight();
   memcpy(fb, bg, sizeof fb);
   drawDoom();
   drawFlash();

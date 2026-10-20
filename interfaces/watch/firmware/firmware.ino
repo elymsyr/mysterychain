@@ -6,7 +6,7 @@
 // Button tap: the character cheers; once the phone has sent the time, the clock shows in the bubble (pets: with the
 // weather icon once the phone has sent the forecast).
 // Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
-// pets.h holds the three pets, the cat, Pavi and Nausicaa; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = runner game,
+// pets.h holds the five pets, the cat, Pavi, Nausicaa, Gandalf and Sauron; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = the look's game,
 // double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
 // screen when the phone's track changes (the character travels, the title scrolls over the sky).
 // No motion and no button for IDLE_OFF_MS: the screen goes dark (display cut by Q2); a shake or the button wakes it.
@@ -17,7 +17,7 @@
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
-#include "pets.h"  // the scene: pets.h (cat, Pavi, Nausicaa, picked from the phone), cat.h, pavi.h or nausicaa.h alone
+#include "pets.h"  // the scene: pets.h (all five, picked from the phone), cat.h, pavi.h or nausicaa.h alone
 
 const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0, DISP_PWR = D7;
 const uint32_t ON_HOLD_MS = 1000, OFF_HOLD_MS = 3000;  // power button, see powerOff()

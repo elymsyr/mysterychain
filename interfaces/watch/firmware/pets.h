@@ -1,4 +1,4 @@
-// All three pets in one firmware, the look picked from the phone (#set scene cat|pavi|nausicaa, saved in /pet):
+// All five pets in one firmware, the look picked from the phone (#set scene cat|pavi|nausicaa|gandalf|sauron, saved in /pet):
 // firmware.ino talks to this `scene` as it would to a single scene header. Stats and high score are shared; each
 // character keeps its own name (pet::s.names).
 #pragma once
@@ -17,7 +17,7 @@ const char *const NAMES[] = {"cat", "pavi", "nausicaa", "gandalf", "sauron"};
 const int COUNT = 5;
 static_assert(COUNT <= pet::LOOKS, "a saved name per look");
 
-uint8_t cur = 0;  // 0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron (no pet calls for the last two; each has its game)
+uint8_t cur = 0;  // 0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron
 // The current scene's buffer, palette and the bubble colors (pick() rebinds them).
 uint8_t *fb = kitty::fb;
 uint8_t (*PAL)[3] = kitty::PAL;
@@ -32,12 +32,12 @@ void step(float dt) { cur == 4 ? sauron::step(dt) : cur == 3 ? gandalf::step(dt)
 void shake() { cur == 4 ? sauron::shake() : cur == 3 ? gandalf::shake() : cur == 2 ? nausicaa::shake() : cur ? pavi::shake() : kitty::shake(); }
 void cheer() { cur == 4 ? sauron::cheer() : cur == 3 ? gandalf::cheer() : cur == 2 ? nausicaa::cheer() : cur ? pavi::cheer() : kitty::cheer(); }
 void tint(int m) { cur == 4 ? sauron::tint(m) : cur == 3 ? gandalf::tint(m) : cur == 2 ? nausicaa::tint(m) : cur ? pavi::tint(m) : kitty::tint(m); }
-void setMood(pet::Mood m) { kitty::setMood(m), pavi::setMood(m), nausicaa::setMood(m); }
-void eat() { cur > 2 ? void() : cur == 2 ? nausicaa::eat() : cur ? pavi::eat() : kitty::eat(); }
-void refuse() { cur > 2 ? void() : cur == 2 ? nausicaa::refuse() : cur ? pavi::refuse() : kitty::refuse(); }
-void purr() { cur > 2 ? void() : cur == 2 ? nausicaa::purr() : cur ? pavi::purr() : kitty::purr(); }
-void yawn() { cur > 2 ? void() : cur == 2 ? nausicaa::yawn() : cur ? pavi::yawn() : kitty::yawn(); }
-void music(bool on) { cur > 2 ? void() : cur == 2 ? nausicaa::music(on) : cur ? pavi::music(on) : kitty::music(on); }
+void setMood(pet::Mood m) { kitty::setMood(m), pavi::setMood(m), nausicaa::setMood(m), gandalf::setMood(m), sauron::setMood(m); }
+void eat() { cur == 4 ? sauron::eat() : cur == 3 ? gandalf::eat() : cur == 2 ? nausicaa::eat() : cur ? pavi::eat() : kitty::eat(); }
+void refuse() { cur == 4 ? sauron::refuse() : cur == 3 ? gandalf::refuse() : cur == 2 ? nausicaa::refuse() : cur ? pavi::refuse() : kitty::refuse(); }
+void purr() { cur == 4 ? sauron::purr() : cur == 3 ? gandalf::purr() : cur == 2 ? nausicaa::purr() : cur ? pavi::purr() : kitty::purr(); }
+void yawn() { cur == 4 ? sauron::yawn() : cur == 3 ? gandalf::yawn() : cur == 2 ? nausicaa::yawn() : cur ? pavi::yawn() : kitty::yawn(); }
+void music(bool on) { cur == 4 ? sauron::music(on) : cur == 3 ? gandalf::music(on) : cur == 2 ? nausicaa::music(on) : cur ? pavi::music(on) : kitty::music(on); }
 void gameStart() { cur == 4 ? sauron::gameStart() : cur == 3 ? gandalf::gameStart() : cur == 2 ? nausicaa::gameStart() : cur ? pavi::gameStart() : kitty::gameStart(); }
 void gameInput(bool held) { cur == 4 ? sauron::gameInput(held) : cur == 3 ? gandalf::gameInput(held) : cur == 2 ? nausicaa::gameInput(held) : cur ? pavi::gameInput(held) : kitty::gameInput(held); }
 void gameStop() { cur == 4 ? sauron::gameStop() : cur == 3 ? gandalf::gameStop() : cur == 2 ? nausicaa::gameStop() : cur ? pavi::gameStop() : kitty::gameStop(); }

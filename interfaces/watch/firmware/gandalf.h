@@ -1,10 +1,12 @@
-// Gandalf: DRAFT scene (not a pet yet, not in pets.h). 80x80 color-indexed buffer drawn 3x like the other scenes, no
+// Gandalf: a pet like the others (pet.h, pets.h look 3). 80x80 color-indexed buffer drawn 3x like the other scenes, no
 // Arduino dependency (test/lotr_preview.cpp dumps clips).
 // The weather picks him and the land (pet::wx): clear = Gandalf the White before Minas Tirith (Gondor); cloudy or wind =
 // the Grey at Bag End (the Shire); rain or snow = the Grey in Rivendell; storm = the Grey on the Deeping Wall (Helm's
 // Deep). A change between Grey and White plays the transformation, the land swaps inside its flash.
 // Animations: idle (blink, robe in the wind), pipe with smoke rings, cheer (staff up, the tip lights), shake ("You shall
 // not pass": raise, slam, a ring of light), a firework from the staff (Shire), the Grey -> White flash.
+// Pet: his mood picks what he does (asleep on his staff, peering into an empty tankard, sighing, yawning); fed, he drinks
+// an ale; full, he waves it off; petted, he chuckles. The music screen: he rides Shadowfax across Rohan (see "Ride").
 // Game (hold 1-3 s): the Bridge of Khazad-dum against the Balrog, see "Game" below.
 #pragma once
 #include <math.h>
@@ -63,6 +65,12 @@ const uint8_t BIO[4][NB][3] = {  // day colors, FAR..SHADOW
      {146, 142, 140}, {100, 98, 100}, {34, 28, 26}, {206, 206, 214}, {58, 104, 56}, {232, 228, 212}, {196, 228, 246},
      {112, 172, 212}, {92, 88, 82}},
 };
+// The ride (music screen) is always across Rohan: far peaks x2, downs x2, grass x3; road x2, rock x2, leaf, trunk;
+// snow on the peaks, bush; shade.
+const uint8_t RIDE[NB][3] = {
+    {128, 146, 176}, {98, 112, 146}, {170, 170, 100}, {136, 140, 78}, {170, 178, 92}, {134, 146, 66}, {206, 206, 124},
+    {190, 164, 116}, {150, 124, 86}, {150, 146, 138}, {104, 100, 96}, {74, 120, 62}, {92, 66, 44}, {238, 242, 250},
+    {100, 132, 60}, {92, 106, 50}};
 const uint8_t SKYLOOK[4][MOON + 1][3] = {  // pet::NIGHT, DAWN, DAY, DUSK: sky, top to horizon; cloud, its shade; star, sun, moon
     {{10, 14, 40}, {20, 28, 70}, {40, 44, 96}, {70, 62, 112}, {60, 66, 100}, {44, 48, 82}, {255, 250, 220}, {255, 214, 90}, {250, 240, 200}},
     {{70, 80, 150}, {150, 110, 165}, {235, 140, 140}, {255, 185, 130}, {255, 214, 200}, {220, 150, 150}, {255, 240, 220}, {255, 240, 170}, {250, 235, 200}},
@@ -86,6 +94,8 @@ const uint8_t SILHOUETTE[] = {HAT, HAT2, HAT3, ROBE, ROBE2, ROBE3, MANT, MANT2};
 pet::Game &game = pet::runner;  // the game below: the bridge (score shared with the other scenes)
 
 uint8_t biome = SHIRE;
+bool rove = false;  // riding (the music screen, or a ride of his own): Rohan's colors
+const int RH = 44, RG = 77;  // the ride's horizon, the row under the hooves
 float white = 0;    // 0 Grey, 1 White (the garb colors blend during the flash)
 int clockMin = -1;  // minute of day, -1 = unknown (night look)
 float nightW = 1;
@@ -99,7 +109,7 @@ void tint(int minuteOfDay) {
     for (int c = 0; c < 3; c++) PAL[k][c] = lroundf(SKYLOOK[a][k][c] * (1 - f) + SKYLOOK[b][k][c] * f);
   for (int k = 0; k < NB; k++)
     for (int c = 0; c < 3; c++) {
-      float v = BIO[biome][k][c];
+      float v = (rove ? RIDE : BIO[biome])[k][c];
       float va = v * (1 - FILT[a][3]) + FILT[a][c] * FILT[a][3], vb = v * (1 - FILT[b][3]) + FILT[b][c] * FILT[b][3];
       PAL[FAR + k][c] = lroundf(va * (1 - f) + vb * f);
     }
@@ -186,13 +196,17 @@ uint8_t code(char ch) {
   return INK;
 }
 // Sprite column ax lands on x. Rows from r0 down lean by sway * ((r - r0) / (h - r0))² px (wind).
-// solid: every pixel in one color (the transformation's silhouette).
-void blit(const char *const *rows, int h, int ax, int x, int y0, int solid = -1, float sway = 0, int r0 = 0) {
-  for (int r = 0; r < h && rows[r]; r++) {  // a short patch ends at its last row
+// solid: every pixel in one color (the transformation's silhouette). Rows above headR move by (hdx, hdy) (a nod, a head
+// shake; hdy >= 0, or a gap opens): drawn bottom-up so the lowered head goes over the robe.
+void blit(const char *const *rows, int h, int ax, int x, int y0, int solid = -1, float sway = 0, int r0 = 0, int hdx = 0,
+          int hdy = 0, int headR = 0) {
+  int n = 0;
+  while (n < h && rows[n]) n++;  // a short patch ends at its last row
+  for (int r = n - 1; r >= 0; r--) {
     float k = r > r0 ? float(r - r0) / (h - r0) : 0;
-    int off = lroundf(sway * k * k);
+    int off = lroundf(sway * k * k) + (r < headR ? hdx : 0), y = y0 + r + (r < headR ? hdy : 0);
     for (int c = 0; rows[r][c]; c++)
-      if (rows[r][c] != '.') px(x + c - ax + off, y0 + r, solid >= 0 ? solid : code(rows[r][c]));
+      if (rows[r][c] != '.') px(x + c - ax + off, y, solid >= 0 ? solid : code(rows[r][c]));
   }
 }
 void art(const char *const *rows, int h, int x, int y, int flip = 1) {  // props (weather.h's leaves: C)
@@ -209,8 +223,8 @@ void art(const char *const *rows, int h, int x, int y, int flip = 1) {  // props
 // ---- Weather (weather.h): the wind blows left to right; his hat brim keeps the rain off ----
 const int WIND_DIR = 1;
 float canopy(float x);
-float landRow() { return GROUND - 6 + 14 * rnd(); }
-float drift() { return 0; }
+float landRow() { return rove ? 57 + 22 * rnd() : GROUND - 6 + 14 * rnd(); }
+float drift() { return rove ? -55 : 0; }  // riding into the rain
 bool airy(uint8_t c) { return c <= MOON; }
 void thunder();
 #include "weather.h"
@@ -284,26 +298,38 @@ const char *const ARM[2][FIG_H] = {  // at rest: the bell sleeve, the staff and 
     "......................KGK",
   },
 };
-// Face patches (rows from 15, columns from 7, '.' keeps the pixel): blink, happy, shouting.
-const char *const FACE[3][7] = {
+// Face patches (rows from 15, columns from 7, '.' keeps the pixel): blink, happy, shouting, yawning, one eye open
+// (asleep), wide-eyed (startled).
+const char *const FACE[6][7] = {
     {"", ".ss...ss.."},
     {"", ".KK...KK..", "", "", "", "...sDDs..."},
     {"sWW.ss.WWs", ".KEW.WKE..", "", "", "...KDDK...", "...KDDK...", "....KK...."},
+    {"", ".ss...ss..", "", "", "...KDDK...", "...KDDK...", "....KK...."},
+    {"", ".ss......."},
+    {"sWW.ss.WWs", ".KEW.WKE.."},
 };
-enum { F_OPEN = -1, F_BLINK, F_HAPPY, F_SHOUT };
+enum { F_OPEN = -1, F_BLINK, F_HAPPY, F_SHOUT, F_YAWN, F_PEEK, F_WIDE };
+const int HEAD_R = 21;  // sprite rows that nod with his head: hat, face, the top of the beard
+// A tankard of ale (P wood, Y iron hoops, W foam), the handle on the right; column 0 at the left rim.
+const char *const MUG[7] = {".WWWW..", "KWWWWK.", "KPPPpKKK", "KYYYYK.K", "KPPPpK.K", "KPPPpKKK", "KKKKKK.."};
 const char *const HAND[4] = {".KKK.", "KSSSK", "KSSsK", ".KKK."};  // column 2 on the staff
 // Staff heads, column 3 on the staff, the last row just over the shaft's top: the Grey's crook, the White's cage of light.
 const char *const CROOK[4] = {".KKK", "KGGgK", "KGKKgK", "KK.KGK"};
 const char *const CAGE[7] = {"..KKK", ".KGGGK", "KGKLKGK", "KGLLLGK", "KGKLKGK", ".KGGGK", "..KgK"};
 const int SHAFT_TOP[2] = {4, 7};  // sprite row where the shaft starts above the head
 
-enum { IDLE, PIPING, RAISE, SLAM, TRANSFORM, FIREWORK };
+// Pet states (SLEEP, HUNGRY, SAD: dur 0 = while the mood lasts); WAKE: shaken awake, he dozes off again.
+enum { IDLE, PIPING, RAISE, SLAM, TRANSFORM, FIREWORK, SLEEP, DRINK, REFUSE, CHUCKLE, YAWN, HUNGRY, SAD, WAKE };
 struct {
-  float x = 38, t = 0, dur = 0, blinkT = 3;
+  float x = 38, t = 0, dur = 0, blinkT = 3, peek = 0;  // peek: s one eye stays open (a message while asleep)
   int st = IDLE;
 } g;
 void pose(int st, float dur) { g.st = st, g.t = 0, g.dur = dur; }
-float trickT = 8;  // s to the next idle trick
+float trickT = 8, yawnT = 0, tripT = 240;  // s to the next idle trick / tired yawn / ride of his own
+pet::Mood mood = pet::HAPPY;
+void setMood(pet::Mood m) { mood = m; }
+bool freeHand() { return g.st == PIPING || g.st == DRINK || g.st == REFUSE || g.st == HUNGRY; }  // the staff stands alone
+bool tipped() { return g.st == HUNGRY && fmodf(g.t, 3) > 1.6f && fmodf(g.t, 3) < 2.4f; }  // shaking the empty tankard
 
 // Smoke rings, firework sparks, the slam's light ring.
 struct Puff { float x, y, r, age; bool on; } puffs[4];
@@ -337,7 +363,7 @@ void staffPose(float &hx, float &hy, float &tilt, bool &rest) {
     k = 1.2f * (g.t < 0.45f ? g.t / 0.45f : g.t < 0.55f ? 1 - (g.t - 0.45f) / 0.1f : 0);
     tilt = 2.5f * (1 - k);  // the staff tilts forward as it comes down
   }
-  rest = k == 0 && g.st != SLAM && g.st != PIPING;
+  rest = k == 0 && g.st != SLAM && !freeHand();
   hx = x0 + STAFF_C + 0.5f + k, hy = y0 + HAND_R + 1 - 14 * k;
 }
 
@@ -350,13 +376,45 @@ void sleeve(float sx, float sy, float hx, float hy, int solid) {
   cone(sx, sy - 0.6f, 1, hx - 0.3f * (hx > sx ? 1 : -1), hy - 0.9f, 1.4f, w ? MANT : ROBE);
 }
 
+// A tankard with its left rim at x, top at y; upside down, or empty (the foam rows dark).
+void mug(int x, int y, bool flip, bool empty, int solid) {
+  for (int r = 0; r < 7; r++)
+    for (int c = 0; MUG[r][c]; c++) {
+      char ch = MUG[flip ? 6 - r : r][c];
+      if (ch == '.' || (empty && ch == 'W' && (flip ? 6 - r : r) == 0)) continue;
+      px(x + c, y + r, solid >= 0 ? solid : empty && ch == 'W' ? INK : code(ch));
+    }
+}
+void zzz(float x, float y) {  // z z z floating up, cream at night, ink by day
+  static const char *const Z[4] = {"####", "..#.", ".#..", "####"};
+  for (int k = 0; k < 3; k++) {
+    float p = fmodf(T * 0.3f + k / 3.f, 1);
+    int zx = lroundf(x + 7 * p + 1.5f * sinf(T * 2 + k)), zy = lroundf(y - 13 * p);
+    if (p < 0.85f)
+      for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+          if (Z[r][c] == '#') px(zx + c, zy + r, nightW > 0.5f ? CREAM : INK);
+  }
+}
+
 void drawGandalf() {
   int w = white > 0.5f;
   int x0 = lroundf(g.x) - AX, y0 = GROUND - FIG_H;
   int face = g.blinkT < 0.15f ? F_BLINK : F_OPEN;
   if (g.st == PIPING && g.t > 0.4f && g.t < g.dur - 0.4f) face = F_BLINK;
-  if (g.st == RAISE || g.st == FIREWORK) face = F_HAPPY;
+  if (g.st == RAISE || g.st == FIREWORK || g.st == CHUCKLE) face = F_HAPPY;
   if (g.st == SLAM) face = F_SHOUT;
+  if (g.st == SLEEP) face = g.peek > 0 ? F_PEEK : F_BLINK;
+  if (g.st == WAKE) face = F_WIDE;
+  if (g.st == YAWN) face = g.t > 0.25f && g.t < g.dur - 0.3f ? F_YAWN : F_BLINK;
+  if (g.st == REFUSE || g.st == SAD || g.st == HUNGRY) face = F_BLINK;  // eyes shut / looking down
+  if (g.st == DRINK) face = g.t > 0.5f && g.t < 2.3f ? F_BLINK : g.t >= 2.3f ? F_HAPPY : face;
+  int hdx = 0, hdy = 0;  // the head's nod / shake; the whole figure's hop
+  if (g.st == SLEEP) hdy = 1 + (fmodf(T, 4) < 2);
+  if (g.st == SAD || tipped()) hdy = 1;
+  if (g.st == REFUSE && g.t < 0.9f) hdx = sinf(g.t * 22) > 0 ? 1 : -1;
+  if (g.st == CHUCKLE) y0 -= int(g.t / 0.16f) & 1;
+  if (g.st == WAKE && g.t < 0.3f) y0 -= 2;
   int solid = g.st == TRANSFORM && g.t > 1.1f && g.t < 1.6f ? LIGHT : -1;  // the flash: a white silhouette
   float wind = pet::wx == pet::WIND ? 1 + gust : pet::wx == pet::STORM ? 1 : 0;
 
@@ -367,10 +425,27 @@ void drawGandalf() {
   tipX = hx + tilt, tipY = top - (w ? 4 : 3);
 
   ellipse(g.x + 1, GROUND, 12, 1.6f, SHADOW);
-  blit(BODY[w], FIG_H, 0, x0, y0, solid, wind, 32);
-  if (face != F_OPEN && solid < 0) blit(FACE[face], 7, -7, x0, y0 + 15);
+  blit(BODY[w], FIG_H, 0, x0, y0, solid, wind, 32, hdx, hdy, HEAD_R);
+  if (face != F_OPEN && solid < 0) blit(FACE[face], 7, -7, x0 + hdx, y0 + 15 + hdy);
+  if (g.st == DRINK && g.t > 2.3f) fillIf(x0 + 10, y0 + 19, x0 + 13, y0 + 19, CREAM);  // a foam moustache
+  if (g.st == SLEEP) zzz(x0 + 18, y0 + 6);
 
   if (rest) return blit(ARM[w], FIG_H, 0, x0, y0, solid);
+  if (g.st == DRINK || g.st == REFUSE || g.st == HUNGRY) {  // the staff stands by itself, his hand is busy
+    capsule(hx, top, hx, foot, 1.5f, INK), capsule(hx, top, hx, foot, 0.6f, STAFF);
+    if (w) blit(CAGE, 7, 3, lroundf(hx) - 1, lroundf(top) - 7);
+    else blit(CROOK, 4, 3, lroundf(hx) - 1, lroundf(top) - 4);
+    float bx = x0 + 21, by = y0 + 29;  // hungry: the empty tankard at his chest
+    if (g.st == DRINK) {  // up to his mouth, a sip, down again
+      float k = clampf(fminf(g.t, g.dur - g.t - 0.2f) / 0.5f, 0, 1);
+      bx = x0 + 22 - 6 * k, by = y0 + 30 - 8 * k + (g.t > 0.5f && g.t < 2.3f ? int(g.t / 0.35f) & 1 : 0);
+    }
+    if (g.st == REFUSE) bx = x0 + 25 + 1.5f * sinf(g.t * 20), by = y0 + 23;  // palm out, waving it off
+    if (tipped()) bx += sinf(g.t * 30) > 0 ? 1 : 0;
+    sleeve(x0 + 18, y0 + 21, bx, by + 1, -1);
+    if (g.st != REFUSE) mug(lroundf(bx) - 6, lroundf(by) - 4 + (tipped() ? 1 : 0), tipped(), g.st == HUNGRY, -1);
+    return blit(HAND, 4, 2, lroundf(bx), lroundf(by) - 2);
+  }
   if (g.st == PIPING) {  // the staff stands by itself, his hand brings the pipe up
     float k = clampf(fminf(g.t, g.dur - g.t) / 0.4f, 0, 1);
     float bx = hx - 1 - 3 * k, by = hy - 2 * k;
@@ -395,10 +470,9 @@ void drawGandalf() {
   blit(HAND, 4, 2, lroundf(hx) - 1, lroundf(hy) - 2, solid);
 }
 
-float canopy(float x) {  // the hat brim, or his head
-  float x0 = lroundf(g.x) - AX;
-  return white > 0.5f ? (fabsf(x - x0 - 9.5f) < 8 ? GROUND - FIG_H + 9 : 1e9f)
-                      : (fabsf(x - x0 - 11.5f) < 11 ? GROUND - FIG_H + 12 : 1e9f);
+float canopy(float x) {  // the hat brim, or his head (riding: higher up, a little back)
+  float x0 = rove ? lroundf(g.x - 4) - 1 - AX : lroundf(g.x) - AX, y0 = rove ? RG - 16 - 38 : GROUND - FIG_H;
+  return white > 0.5f ? (fabsf(x - x0 - 9.5f) < 8 ? y0 + 9 : 1e9f) : (fabsf(x - x0 - 11.5f) < 11 ? y0 + 12 : 1e9f);
 }
 float startle = 0;
 void thunder() { startle = 0.6f; }
@@ -693,6 +767,7 @@ void cloud(float cx, float cy, float s) {
 const float CLOUDS[6][4] = {{8, 11, 0.7f, 2.0f}, {58, 17, 0.55f, 1.4f}, {30, 28, 0.75f, 1.0f},
                             {80, 6, 0.7f, 1.7f}, {45, 15, 0.6f, 2.3f}, {15, 24, 0.7f, 1.2f}};
 int cloudCount() { return pet::wx == pet::CLEAR ? 2 : pet::wx == pet::WIND ? 4 : 6; }
+float cloudRun = 0;  // px the clouds have drifted (faster on a ride)
 
 void drawSky() {
   float ov = pet::OVERCAST[pet::wx];
@@ -713,7 +788,8 @@ void drawSky() {
   }
   for (int k = 0; k < cloudCount(); k++) {
     const float *c = CLOUDS[k];
-    float x = fmodf(c[0] + T * c[3] * (pet::wx == pet::WIND ? 3 : pet::wx == pet::STORM ? 2 : 1), 110);
+    float x = fmodf(c[0] + cloudRun * c[3], 110);
+    if (x < 0) x += 110;
     cloud(x - 15, c[1], c[2]);
   }
 }
@@ -802,35 +878,249 @@ void drawEffects() {
   }
 }
 
+// ---- Ride (the music screen; now and then a ride of his own): Gandalf on Shadowfax across Rohan, side on. The far
+// peaks, the downs and the road slide by at their depth (parallax), dust flies from the hooves. ----
+const float RIDE_V = 55;     // px/s the road goes by
+bool tunes = false;          // music screen on (music())
+float tripLeft = 0, dist = 0, hopY = 0, hopV = 0, cheerT = 0;  // s of ride left (0 = while the music plays); hop
+float vn(float u) {  // smooth value noise, 0..1
+  int i = floorf(u);
+  float f = u - i;
+  f = f * f * (3 - 2 * f);
+  return h01(i) * (1 - f) + h01(i + 1) * f;
+}
+float peakTop(float x) { float u = (x + dist * 0.06f) / 11; return 22 + 15 * vn(u) + 3 * vn(u * 3.3f + 7); }
+float downTop(float x) { return 45 + 5 * vn((x + dist * 0.3f) / 13); }
+void travel(float secs) {
+  rove = true, tripLeft = secs, hopY = hopV = 0;
+  pose(IDLE, 0);
+  tint(clockMin);
+}
+void endTrip() {
+  rove = false;
+  pose(IDLE, 0);
+  tint(clockMin);
+}
+float stride() { return fmodf(dist / 26, 1); }  // gallop phase
+void roveStep(float dt) {
+  float p0 = stride();
+  dist += RIDE_V * dt;
+  hopV += 170 * dt, hopY = fminf(0, hopY + hopV * dt);
+  if (hopY == 0) hopV = 0;
+  cheerT = fmaxf(0, cheerT - dt);
+  if (stride() < p0 && hopY == 0)  // a stride: a puff of dust behind
+    for (int i = 0, k = 0; i < 40 && k < 4; i++)
+      if (!sparks[i].on) sparks[i] = {g.x - 14 + 3 * rnd(), RG - 1.f, -30 - 20 * rnd(), -10 - 14 * rnd(), 0.6f, ACC2, true}, k++;
+  if (!tunes && tripLeft > 0 && (tripLeft -= dt) <= 0) endTrip();
+}
+
+void outlined(float x0, float y0, float r0, float x1, float y1, float r1, uint8_t c) {
+  cone(x0, y0, r0 + 0.8f, x1, y1, r1 + 0.8f, INK), cone(x0, y0, r0, x1, y1, r1, c);
+}
+// A leg from the hip (hx, hy), phase q: the hoof swings forward lifted, comes back on the ground. Knees fold forward
+// on the forelegs, hocks back on the hind ones.
+void leg(float hx, float hy, float gy, float q, bool fore, uint8_t c) {
+  float s = q * 6.2832f, fx = hx + 6.5f * cosf(s), fy = gy - fmaxf(0, -sinf(s)) * 5 - hopY * 0.15f;
+  float dx = fx - hx, dy = fy - hy, d = fmaxf(hypotf(dx, dy), 1), h = sqrtf(fmaxf(0, 42.25f - d * d / 4)) * (fore ? -1 : 1);
+  float kx = hx + dx / 2 - dy / d * h, ky = hy + dy / 2 + dx / d * h;
+  outlined(hx, hy, 2.2f, kx, ky, 1.3f, c), outlined(kx, ky, 1.2f, fx, fy, 0.9f, c);
+  disc(fx, fy, 1.3f, INK);
+}
+void drawHorse(float bx, float by, float gy) {
+  float q = stride();
+  leg(bx - 9, by + 3, gy, q + 0.1f, false, HAIR3), leg(bx + 9, by + 3, gy, q + 0.6f, true, HAIR3);  // far side
+  for (int i = 0; i < 5; i++) {  // the tail streaming back
+    float x0 = bx - 12 - 3 * i, y0 = by - 3 + 1.2f * i + sinf(T * 11 + i) * 0.6f * i;
+    outlined(x0, y0, 1.8f - 0.2f * i, x0 - 3, y0 + 1.2f + sinf(T * 11 + i + 1) * 0.6f, 1.6f - 0.2f * i, HAIR2);
+  }
+  ellipse(bx, by, 14, 7.3f, INK);
+  for (int y = floorf(by - 6.5f); y <= by + 6.5f; y++)
+    for (int x = floorf(bx - 13); x <= bx + 13; x++) {
+      float u = (x + 0.5f - bx) / 13, v = (y + 0.5f - by) / 6.5f;
+      if (u * u + v * v < 1) px(x, y, v > 0.45f ? HAIR2 : HAIR1);
+    }
+  outlined(bx + 10, by - 1, 5.2f, bx + 15, by - 9, 3.3f, HAIR1);    // chest and neck
+  outlined(bx + 15.5f, by - 11, 3.3f, bx + 22, by - 7, 2, HAIR1);  // head, the muzzle down
+  px(bx + 17, by - 12, INK), px(bx + 22.5f, by - 7, INK), px(bx + 21, by - 5.5f, HAIR2);  // eye, nostril, jaw
+  px(bx + 14, by - 15, INK), px(bx + 14, by - 14, HAIR2), px(bx + 15, by - 15, INK), px(bx + 15, by - 14, HAIR2);  // ears
+  for (int k = 0; k < 5; k++) {  // the mane flying
+    float mx = bx + 14.5f - 1.6f * k, my = by - 13.5f + 2.2f * k;
+    capsule(mx, my, mx - 4.5f - sinf(T * 13 + k), my + 0.5f + 0.7f * sinf(T * 9 + k), 0.7f, HAIR2);
+  }
+  leg(bx - 8, by + 3, gy, q, false, HAIR1), leg(bx + 10, by + 3, gy, q + 0.5f, true, HAIR1);  // near side
+}
+void notes(float x, float y) {  // music notes rising over him, blown back
+  static const char *const NOTE[2][5] = {{"..##", "..#.", "..#.", "###.", "##.."}, {"####", "#..#", "#..#", "#.##", "#.##"}};
+  for (int k = 0; k < 3; k++) {
+    float p = fmodf(T * 0.35f + k / 3.f, 1);
+    int nx = lroundf(x - 24 * p + 3 * sinf(T * 2 + k * 2)), ny = lroundf(y - 12 * p);
+    if (p < 0.85f)
+      for (int r = 0; r < 5; r++)
+        for (int c = 0; c < 4; c++)
+          if (NOTE[k % 2][r][c] == '#') px(nx + c, ny + r, nightW > 0.5f ? CREAM : INK);
+  }
+}
+void drawRide() {
+  int h0 = horizon;
+  horizon = RH;
+  for (int y = 0; y < N; y++)
+    for (int x = 0; x < N; x++) fb[y * N + x] = y < RH ? skyAt(x, y) : LAND;
+  drawSky();
+  for (int x = 0; x < N; x++) {
+    float pt = peakTop(x), dt = downTop(x), sl = peakTop(x + 1) - pt;
+    for (int y = floorf(pt); y < dt && y < RH + 6; y++) px(x, y, y < pt + 2 && pt < 30 ? WATER : sl > 0.15f ? FAR2 : FAR);
+    for (int y = floorf(dt); y < 57; y++) px(x, y, y < dt + 1 ? LANDL : y > dt + 5 && bayer(x, y) > 0.4f ? MID2 : MID);
+  }
+  for (int k = 0; k < 6; k++) {  // trees on the downs
+    float slot = floorf(dist * 0.3f / 17) + k, tx = slot * 17 - dist * 0.3f;
+    if (h01(int(slot) * 7 + 3) > 0.5f) tree(tx + 6 * h01(int(slot)), fminf(downTop(tx) + 6, 56), 3.2f, ACC5, WATER2, LANDL, ACC6, 1.5f);
+  }
+  for (int y = 57; y < N; y++) {  // the grass, the road; their texture moves faster the nearer it is
+    float sp = 0.45f + 0.95f * (y - 57) / 23.f;
+    for (int x = 0; x < N; x++) {
+      int u = int(x + dist * sp);
+      bool road = y >= 67 && y <= 78;
+      uint8_t c = road ? ((y == 70 || y == 75) && (u / 3) % 3 == 0 ? ACC2 : ACC1) : y == 57 ? LANDL : LAND;
+      if (!road && h01(u * 31 + y * 977) < 0.1f) c = LAND2;
+      if (y == 66 || y == 79) c = LAND2;
+      px(x, y, c);
+    }
+  }
+  for (int k = 0; k < 4; k++) {  // stones on the verge
+    float slot = floorf(dist / 31) + k, sx = slot * 31 - dist;
+    if (h01(int(slot) * 5 + 1) > 0.5f) {
+      int y = 64;
+      fillIf(sx, y - 1, sx + 3, y, ACC3), fillIf(sx + 1, y, sx + 3, y, ACC4), px(sx, y - 2, INK);
+    }
+  }
+  horizon = h0;
+  drawFlash();
+  drawDrops();
+
+  float bob = sinf(stride() * 12.566f) * 1.2f, bx = g.x - 4, gy = RG + hopY, by = gy - 16 + bob;
+  int w = white > 0.5f, x0 = lroundf(bx) - 1 - AX, y0 = lroundf(by) - 38;
+  for (int i = 0; i < 4; i++) {  // his mantle flying behind
+    float cx = x0 + 6 - 4.5f * i, cy = y0 + 22 + 2.4f * i + sinf(T * 12 + i) * 0.5f * i;
+    outlined(cx, cy, 2.6f - 0.4f * i, cx - 4.5f, cy + 2.4f + sinf(T * 12 + i + 1) * 0.5f, 2.2f - 0.4f * i, w ? MANT : ROBE2);
+  }
+  blit(BODY[w], 33, 0, x0, y0);
+  drawHorse(bx, by, gy);
+  outlined(bx + 2, by - 5, 2, bx + 3, by + 3, 1.5f, w ? ROBE : ROBE2);  // his leg down the flank, the boot
+  disc(bx + 3.5f, by + 4.5f, 1.7f, INK), disc(bx + 3.5f, by + 4.3f, 1, BOOT);
+  // the staff held up ahead of him, the hand on it
+  float hx = x0 + 24, hy = y0 + 25 + bob * 0.5f, tx = hx + 4, ty = hy - 17;
+  sleeve(x0 + 18, y0 + 21, hx - 1, hy + 1, -1);
+  capsule(hx - 5, hy + 11, tx, ty, 1.5f, INK), capsule(hx - 5, hy + 11, tx, ty, 0.6f, STAFF);
+  if (w) blit(CAGE, 7, 3, lroundf(tx) - 1, lroundf(ty) - 7);
+  else blit(CROOK, 4, 3, lroundf(tx) - 1, lroundf(ty) - 4);
+  blit(HAND, 4, 2, lroundf(hx) - 1, lroundf(hy) - 2);
+  tipX = tx, tipY = ty - (w ? 4 : 3), glow = cheerT > 0 ? fminf(1, cheerT * 2) : 0;
+  drawEffects();
+  if (tunes) notes(x0 + 4, y0 + 2);
+  drawLeaves();
+}
+
 // ---- Logic ----
 bool wantWhite() { return pet::wx == pet::CLEAR; }
 
-void shake() { pose(SLAM, 1.6f); }
+// Device shaken: "You shall not pass!". Asleep: a start, wide-eyed, then he dozes off again. Riding: Shadowfax leaps.
+void shake() {
+  if (game.on) return;
+  if (rove) return void(hopV = -48);
+  if (g.st == SLEEP) return pose(WAKE, 1.2f);
+  pose(SLAM, 1.6f);
+}
+// Message/button: the staff up, its tip alight. Asleep: one eye opens for 2 s. Riding: a hop, the staff lights.
 void cheer() {
-  if (g.st == IDLE || g.st == PIPING) pose(RAISE, 1.6f);
+  if (game.on) return;
+  if (g.st == SLEEP) return void(g.peek = 2);
+  if (rove) return void((hopV = -30, cheerT = 1.2f));
+  if (g.st == IDLE || g.st == PIPING || g.st == SAD || g.st == HUNGRY) pose(RAISE, 1.6f);
 }
 void smoke() { pose(PIPING, 4.2f); }
 void firework() { pose(FIREWORK, 3.2f); }
+// Pet events (nothing during the game; a ride ends): fed (an ale), fed while full, petted, too tired to play.
+void petAct(int st, float dur) {
+  if (game.on) return;
+  if (rove) rove = false, tint(clockMin);
+  pose(st, dur);
+}
+void eat() { petAct(DRINK, 3); }
+void refuse() { petAct(REFUSE, 1.2f); }
+void purr() { petAct(CHUCKLE, 2); }
+void yawn() { petAct(YAWN, 1.6f); }
+// Music screen on / off (the firmware calls this every frame): he rides; asleep, he sleeps on.
+void music(bool on) {
+  if (game.on) on = false;
+  if (on == tunes) return;
+  tunes = on;
+  if (on && g.st != SLEEP && mood != pet::SLEEP) travel(0);
+  else if (!on && rove && tripLeft <= 0) endTrip();
+}
+
+void particles(float dt) {  // smoke rings, the rocket, sparks (and the ride's dust), the slam's ring
+  for (auto &p : puffs)
+    if (p.on) {
+      p.age += dt, p.r += 1.2f * dt, p.y -= 5 * dt, p.x += (pet::wx == pet::WIND ? 8 : 2) * dt;
+      if (p.age > 3.5f || p.y < 12) p.on = false;
+    }
+  if (rocket.on) {
+    rocket.y += rocket.vy * dt, rocket.age += dt;
+    rocket.x += 3 * sinf(rocket.age * 12) * dt;
+    if (rocket.age > 0.55f) rocket.on = false, burst(rocket.x, rocket.y);
+  }
+  for (auto &s : sparks)
+    if (s.on) {
+      s.age += dt, s.vy += G * dt, s.x += s.vx * dt, s.y += s.vy * dt, s.vx *= 1 - 1.5f * dt;
+      if (s.age > 1.6f) s.on = false;
+    }
+  if (waveAge >= 0 && (waveAge += dt) > 1) waveAge = -1;
+}
 
 void update(float dt) {
   T += dt, g.t += dt;
   if ((g.blinkT -= dt) < 0) g.blinkT = 2.5f + 3 * rnd();
-  startle = fmaxf(0, startle - dt);
+  startle = fmaxf(0, startle - dt), g.peek = fmaxf(0, g.peek - dt), yawnT -= dt;
+  cloudRun += dt * ((pet::wx == pet::WIND ? 3 : pet::wx == pet::STORM ? 2 : 1) - (rove ? 5 : 0));
   glow = 0;
+  if (rove) return roveStep(dt), particles(dt);
   uint8_t want = biomeFor(pet::wx);
-  if (g.st != TRANSFORM && (want != biome || (white > 0.5f) != wantWhite())) {
+  if (g.st == SLEEP && (want != biome || (white > 0.5f) != wantWhite())) {  // asleep: no flash, the land just changes
+    white = wantWhite(), biome = want, buildBg(), tint(clockMin);
+  } else if (g.st != TRANSFORM && (want != biome || (white > 0.5f) != wantWhite())) {
     if ((white > 0.5f) != wantWhite()) pose(TRANSFORM, 2.8f);
     else setBiome(want);
   }
   switch (g.st) {
     case IDLE:
-      if ((trickT -= dt) < 0) {
+      if (startle > 0) glow = startle;
+      if (mood == pet::SLEEP) pose(SLEEP, 0);
+      else if (mood == pet::HUNGRY) pose(HUNGRY, 0);
+      else if (mood == pet::SAD) pose(SAD, 0);
+      else if (mood == pet::TIRED && yawnT <= 0) yawnT = 30, pose(YAWN, 1.6f);
+      else if (mood == pet::HAPPY && (tripT -= dt) < 0) tripT = 200 + 100 * rnd(), travel(12 + 8 * rnd());
+      else if ((trickT -= dt * (mood == pet::TIRED ? 0.5f : 1)) < 0) {  // tired: tricks half as often
         trickT = 10 + 10 * rnd();
         if (biome == SHIRE && rnd() < 0.4f) firework();
         else smoke();
       }
-      if (startle > 0) glow = startle;
       break;
+    case SLEEP:
+      if (startle > 0) g.peek = fmaxf(g.peek, startle);  // thunder: an eye opens
+      if (mood != pet::SLEEP) pose(YAWN, 1.6f);
+      break;
+    case HUNGRY:
+      if (mood != pet::HUNGRY) pose(IDLE, 0);
+      else if (fmodf(g.t, 3) > 2 && fmodf(g.t - dt, 3) <= 2)  // the last drop out of the tankard
+        for (auto &s : sparks)
+          if (!s.on) { s = {lroundf(g.x) - AX + 18.f, GROUND - FIG_H + 33.f, 0, 10, 0.8f, DROP, true}; break; }
+      break;
+    case SAD:
+      if (mood != pet::SAD) pose(IDLE, 0);
+      else if (fmodf(g.t, 6) > 4 && fmodf(g.t - dt, 6) <= 4) puff(lroundf(g.x) - AX + 15, GROUND - FIG_H + 21);  // a sigh
+      break;
+    case WAKE: glow = clampf(1 - g.t, 0, 1); break;
+    case CHUCKLE: glow = 0.35f; break;
     case PIPING:
       if ((g.t > 1.3f && g.t - dt <= 1.3f) || (g.t > 2.5f && g.t - dt <= 2.5f)) puff(lroundf(g.x) - AX + 19, GROUND - FIG_H + 17);
       break;
@@ -855,27 +1145,13 @@ void update(float dt) {
       break;
     }
   }
-  if (g.st != IDLE && g.t >= g.dur) pose(IDLE, 0);
-  for (auto &p : puffs)
-    if (p.on) {
-      p.age += dt, p.r += 1.2f * dt, p.y -= 5 * dt, p.x += (pet::wx == pet::WIND ? 8 : 2) * dt;
-      if (p.age > 3.5f || p.y < 12) p.on = false;
-    }
-  if (rocket.on) {
-    rocket.y += rocket.vy * dt, rocket.age += dt;
-    rocket.x += 3 * sinf(rocket.age * 12) * dt;
-    if (rocket.age > 0.55f) rocket.on = false, burst(rocket.x, rocket.y);
-  }
-  for (auto &s : sparks)
-    if (s.on) {
-      s.age += dt, s.vy += G * dt, s.x += s.vx * dt, s.y += s.vy * dt, s.vx *= 1 - 1.5f * dt;
-      if (s.age > 1.6f) s.on = false;
-    }
-  if (waveAge >= 0 && (waveAge += dt) > 1) waveAge = -1;
+  if (g.st != IDLE && g.dur > 0 && g.t >= g.dur) pose(IDLE, 0);
+  particles(dt);
 }
 
 void init() {
-  g = {}, trickT = 8, waveAge = -1, rocket.on = false;
+  g = {}, trickT = 8, yawnT = 0, waveAge = -1, rocket.on = false;
+  rove = false, hopY = hopV = cheerT = 0;
   for (auto &p : puffs) p.on = false;
   for (auto &s : sparks) s.on = false;
   for (int i = 0; i < NS; i++) sx[i] = 10 + rnd() * 60, sy[i] = 3 + rnd() * 30, sp[i] = rnd() * 6.28f;
@@ -996,7 +1272,7 @@ void land(bool guard) {
 
 void gameStart() {
   game = pet::Game();
-  game.on = true;
+  game.on = true, rove = false;
   duel = {}, atk = {};
   duel.hp = HP, duel.gx = laneX(0, LY1), duel.guardT = duel.actT = duel.hitT = duel.whiteT = duel.counterT = atk.landT = -9;
   for (auto &s : sparks) s.on = false;
@@ -1441,6 +1717,7 @@ void step(float dt) {
   if (game.on) return gameStep(dt), gameDraw();
   update(dt);
   weatherStep(dt);
+  if (rove) return drawRide();
   memcpy(fb, bg, sizeof fb);
   drawSky();
   drawFlash();
