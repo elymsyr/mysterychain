@@ -17,7 +17,7 @@ const char *const NAMES[] = {"cat", "pavi", "nausicaa", "gandalf", "sauron"};
 const int COUNT = 5;
 static_assert(COUNT <= pet::LOOKS, "a saved name per look");
 
-uint8_t cur = 0;  // 0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron (scenery only: no pet calls yet)
+uint8_t cur = 0;  // 0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron (no pet calls for the last two; Gandalf has his game)
 // The current scene's buffer, palette and the bubble colors (pick() rebinds them).
 uint8_t *fb = kitty::fb;
 uint8_t (*PAL)[3] = kitty::PAL;
@@ -38,11 +38,12 @@ void refuse() { cur > 2 ? void() : cur == 2 ? nausicaa::refuse() : cur ? pavi::r
 void purr() { cur > 2 ? void() : cur == 2 ? nausicaa::purr() : cur ? pavi::purr() : kitty::purr(); }
 void yawn() { cur > 2 ? void() : cur == 2 ? nausicaa::yawn() : cur ? pavi::yawn() : kitty::yawn(); }
 void music(bool on) { cur > 2 ? void() : cur == 2 ? nausicaa::music(on) : cur ? pavi::music(on) : kitty::music(on); }
-void gameStart() { cur > 2 ? void() : cur == 2 ? nausicaa::gameStart() : cur ? pavi::gameStart() : kitty::gameStart(); }
-void gameInput(bool held) { cur > 2 ? void() : cur == 2 ? nausicaa::gameInput(held) : cur ? pavi::gameInput(held) : kitty::gameInput(held); }
-void gameStop() { cur > 2 ? void() : cur == 2 ? nausicaa::gameStop() : cur ? pavi::gameStop() : kitty::gameStop(); }
-void gameTilt(float g) { cur > 2 ? void() : cur == 2 ? nausicaa::gameTilt(g) : cur ? pavi::gameTilt(g) : kitty::gameTilt(g); }
-void gameLabel(char *out, int cap) { kitty::gameLabel(out, cap); }  // reads only the shared runner state
+// Sauron (4) has no game yet.
+void gameStart() { cur > 3 ? void() : cur == 3 ? gandalf::gameStart() : cur == 2 ? nausicaa::gameStart() : cur ? pavi::gameStart() : kitty::gameStart(); }
+void gameInput(bool held) { cur > 3 ? void() : cur == 3 ? gandalf::gameInput(held) : cur == 2 ? nausicaa::gameInput(held) : cur ? pavi::gameInput(held) : kitty::gameInput(held); }
+void gameStop() { cur > 3 ? void() : cur == 3 ? gandalf::gameStop() : cur == 2 ? nausicaa::gameStop() : cur ? pavi::gameStop() : kitty::gameStop(); }
+void gameTilt(float g) { cur > 3 ? void() : cur == 3 ? gandalf::gameTilt(g) : cur == 2 ? nausicaa::gameTilt(g) : cur ? pavi::gameTilt(g) : kitty::gameTilt(g); }
+void gameLabel(char *out, int cap) { cur == 3 ? gandalf::gameLabel(out, cap) : kitty::gameLabel(out, cap); }  // the rest read only the shared runner state
 
 int find(const char *name) {  // index of a scene name, -1 = none
   for (int i = 0; i < COUNT; i++)

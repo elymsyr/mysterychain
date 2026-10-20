@@ -728,6 +728,8 @@ void loop() {
     tell(line);
     if (scene::game.newBest) buzz(3), petSave();
   }
+  if (scene::game.buzz) buzz(scene::game.buzz), scene::game.buzz = 0;
+  if (pet::palDirty) pet::palDirty = false, buildPal();
   petTick(now);
 #else
   if (pressed) {

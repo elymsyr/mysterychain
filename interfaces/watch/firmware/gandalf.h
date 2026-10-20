@@ -5,6 +5,7 @@
 // Deep). A change between Grey and White plays the transformation, the land swaps inside its flash.
 // Animations: idle (blink, robe in the wind), pipe with smoke rings, cheer (staff up, the tip lights), shake ("You shall
 // not pass": raise, slam, a ring of light), a firework from the staff (Shire), the Grey -> White flash.
+// Game (hold 1-3 s): the Bridge of Khazad-dum against the Balrog, see "Game" below.
 #pragma once
 #include <math.h>
 #include <stdint.h>
@@ -70,6 +71,20 @@ const uint8_t SKYLOOK[4][MOON + 1][3] = {  // pet::NIGHT, DAWN, DAY, DUSK: sky, 
 };
 const float FILT[4][4] = {{16, 22, 58, 0.62f}, {255, 160, 140, 0.2f}, {0, 0, 0, 0}, {230, 100, 80, 0.28f}};  // land at each look
 
+// The game's Moria, all fire (over SKY0..SHADOW while it runs; the garb stays, the Grey's darkened to a silhouette).
+const uint8_t MORIA[SHADOW + 1][3] = {
+    {40, 8, 6},     {96, 22, 8},    {170, 52, 12},  {232, 112, 30},   // the haze: dark at the edges, bright behind him
+    {255, 176, 64}, {204, 82, 20},  {58, 20, 14},   {110, 40, 20},    // flames behind him x2; smoke x2
+    {255, 238, 176},                                                  // white-hot: whip core, embers
+    {46, 22, 18},   {24, 12, 12},   {206, 92, 32},  {112, 46, 22},    // basalt columns, their gaps; lit tops, rims
+    {200, 164, 122}, {142, 110, 80}, {242, 216, 172},                 // the bridge, its joints, its lit far end
+    {66, 32, 22},   {30, 13, 10},   {255, 110, 24}, {255, 222, 120},  // Balrog: body, shade, lava, its core
+    {72, 26, 20},   {30, 12, 10},                                     // his wings, their bones
+    {150, 36, 10},  {70, 16, 8},    {14, 6, 6},                       // the chasm's glow x2, shade
+};
+const uint8_t SILHOUETTE[] = {HAT, HAT2, HAT3, ROBE, ROBE2, ROBE3, MANT, MANT2};
+pet::Game &game = pet::runner;  // the game below: the bridge (score shared with the other scenes)
+
 uint8_t biome = SHIRE;
 float white = 0;    // 0 Grey, 1 White (the garb colors blend during the flash)
 int clockMin = -1;  // minute of day, -1 = unknown (night look)
@@ -96,6 +111,12 @@ void tint(int minuteOfDay) {
   pet::dim(PAL[FAR], ov, dark), pet::dim(PAL[FAR2], ov, dark);
   pet::dim(PAL[CLOUD], ov, dark * 0.6f), pet::dim(PAL[CLOUD2], ov, dark * 0.6f);
   for (int k = MID; k <= SHADOW; k++) pet::dim(PAL[k], ov * 0.3f, dark);
+  if (game.on) {
+    memcpy(PAL, MORIA, sizeof MORIA);
+    if (white < 0.5f)  // the Grey: dark against the fire
+      for (uint8_t k : SILHOUETTE) PAL[k][0] = PAL[k][0] * 0.5f, PAL[k][1] = PAL[k][1] * 0.4f, PAL[k][2] = PAL[k][2] * 0.4f;
+  }
+  pet::palDirty = true;  // the transformation and the game retint mid-minute
 }
 bool sunUp() { return clockMin >= pet::SUNRISE && clockMin < pet::SUNSET; }
 
@@ -862,7 +883,562 @@ void init() {
   setBiome(biomeFor(pet::wx));
 }
 
+// ---- Game: the Bridge of Khazad-dûm. Seen over Gandalf's shoulder, the Balrog at the far end. Tilt picks his spot
+// (left, middle, right). The Balrog marks where he'll strike, one, two or all three lanes: a red ring closes on each
+// while he raises his arm and tenses, never at the same pace (fill()), and bursts when it's closed. Then he holds the
+// blow for atk.win s, shorter as it gets harder: in a marked lane, a press then (or EARLY s before) blocks (Glamdring
+// against the whip, a dome of light against fire). A press only guards for GUARD_S s, and one earlier while he winds up
+// is a whiff: no block this blow, so mashing doesn't work. A clean block gives a free strike, tap within counterW s.
+// In an unmarked lane his blow misses; a press there in the window strikes him. Between blows he now and then shields
+// behind his wings with one side open (a cyan mark): tilt there and tap within duel.win s. HP strikes and he falls (level up) and climbs back, faster. A blow that lands cracks
+// the bridge; the third crack breaks it. A streak of STREAK clean blocks or strikes turns him White: points count
+// double until he's hit. ----
+const float LY0 = 38, LY1 = 57, GY = 74, MY = 46;  // the Balrog's hands, the guard, Gandalf's feet; the marks' row
+const float TILT_IN = 0.17f, TILT_OUT = 0.09f;  // as Pavi's: g sideways past IN = side spot, back under OUT = middle
+const int HP = 5, STREAK = 6, CRACKS = 3;
+const float BURST = 0.3f;  // how long a blow shows
+const float GUARD_S = 0.4f, EARLY = 0.1f;  // a press guards this long; this early before the ring closes still counts
+float laneX(float l, float y) { return 40 + l * (11 + 4 * (y - LY0) / (LY1 - LY0)); }  // ±11 at his hands, ±15 at Gandalf
+float guardX(int l) { return 40 + l * 12.f; }  // the Balrog's sides
+
+enum { FIGHT, GUARD, FALL };  // the Balrog attacks, shields (strike the open side), falls
+enum { READY, BLOCK_SWORD, BLOCK_STAFF, STRIKE_SWORD, STRIKE_STAFF, SLAM_DOWN, HURT };
+struct {
+  bool on, fire;   // fire from the left hand, else the whip in the right
+  bool whiff;      // pressed too early: no block this blow
+  uint8_t mask;    // bit l + 1: lane l
+  uint8_t shape;   // how the ring closes (fill())
+  float t, dur;    // winding up: the ring is closed at t = dur, then he holds the blow for win s
+  float win;
+  float landT;     // when the last one landed
+} atk;
+struct {
+  int phase, hp, cracks, streak, level, sinceOpen;
+  int8_t lane, open;
+  uint8_t act;  // Gandalf's pose after a block, a strike or a hit (since actT)
+  bool tap;     // a press this frame
+  float t, nextT, gx, guardT, actT, hitT, whiteT, fallY, fallV, win, counterT, counterW, strikeX;
+} duel;
+float hard() { return clampf(game.t / 180 + duel.level * 0.12f, 0, 1); }  // 0 -> 1 over 3 min of play, sooner per level
+bool hits(uint8_t mask, int l) { return mask >> (l + 1) & 1; }
+bool counter() { return duel.phase == FIGHT && T - duel.counterT < duel.counterW; }
+bool guarding() { return T - duel.guardT < GUARD_S; }
+bool windowOpen() { return atk.on && atk.t >= atk.dur; }  // the ring has closed: he holds the blow, press now
+float fill() {  // how far the ring has closed, 0..1, a different pace each blow so it can't be timed by rote
+  float u = clampf(atk.t / atk.dur, 0, 1);
+  switch (atk.shape) {
+    case 1: return u * u * u;                                                // slow, then all at once
+    case 2: return 1 - (1 - u) * (1 - u) * (1 - u);                          // fast, then it hangs
+    case 3: return u < 0.85f ? 0.6f * fminf(u / 0.4f, 1) : 0.6f + 0.4f * (u - 0.85f) / 0.15f;  // stalls, then snaps
+    default: return u;
+  }
+}
+
+void finish() {  // stats and the event for the firmware
+  game.newBest = pet::gameOver(game.score);
+  game.ended = true;
+}
+int mult() { return white > 0.5f ? 2 : 1; }
+void act(uint8_t a) { duel.act = a, duel.actT = T; }
+void clash(float x, float y, uint8_t c, uint8_t c2, int n, float v) {  // a burst from the sparks pool
+  for (auto &s : sparks)
+    if (!s.on && n-- > 0) {
+      float a = 6.2832f * rnd();
+      s = {x, y, v * (0.4f + rnd()) * cosf(a), v * (0.4f + rnd()) * sinf(a) - v * 0.3f, 0, uint8_t(n & 1 ? c : c2), true};
+    }
+}
+void good() {  // a clean block or strike: the streak, and at STREAK the White
+  if (++duel.streak >= STREAK && white < 0.5f) white = 1, duel.whiteT = T, tint(clockMin);
+}
+
+void next(float gap) { duel.phase = FIGHT, duel.nextT = gap; }
+void attack() {  // one, two or three lanes, harder ones later
+  float k = hard(), r = rnd();
+  int n = r < 0.55f - 0.25f * k ? 1 : r < 0.88f - 0.13f * k ? 2 : 3, l = int(rnd() * 3);
+  atk.on = true, atk.whiff = false, atk.fire = rnd() < 0.5f, atk.mask = n == 3 ? 7 : n == 1 ? 1 << l : 7 & ~(1 << l);
+  atk.t = 0, atk.dur = (1.5f - 0.6f * k) * (0.6f + 0.8f * rnd()), atk.shape = int(rnd() * 4), atk.win = 0.45f - 0.25f * k;
+  duel.sinceOpen++, duel.nextT = 0.5f - 0.25f * k + 0.5f * rnd();  // the gap after it lands
+}
+void opening() {
+  duel.phase = GUARD, duel.t = 0, duel.open = int(rnd() * 3) - 1, duel.win = 1.4f - 0.9f * hard(), duel.sinceOpen = 0;
+  game.buzz = 1;
+}
+void strike(bool hit) {  // Gandalf strikes at his side of the Balrog; HP down, at 0 he falls
+  duel.strikeX = guardX(duel.lane), act(rnd() < 0.5f ? STRIKE_SWORD : STRIKE_STAFF);
+  if (!hit) return;
+  game.score += 3 * mult(), duel.hitT = T, good();
+  clash(duel.strikeX, MY, LIGHT, ACC3, 14, 34);
+  if (--duel.hp > 0) return;
+  duel.phase = FALL, duel.t = 0, duel.level++, duel.hp = HP, game.score += 5 * mult(), duel.counterT = -9;
+  atk.on = false, act(SLAM_DOWN);  // "You shall not pass": he slams the bridge, the Balrog falls
+}
+
+void hurt() {
+  duel.cracks++, duel.streak = 0, act(HURT), game.buzz = 2;
+  if (white > 0.5f) white = 0, tint(clockMin);
+  if (duel.cracks < CRACKS) return;
+  game.dead = true, game.t = 0, duel.fallV = -20;  // the bridge breaks under him
+  for (int i = 0; i < 14; i++) clash(duel.gx - 10 + 20 * rnd(), GY + 2, LAND, LAND2, 1, 20);
+  finish();
+}
+
+void land(bool guard) {
+  atk.on = false, atk.landT = T;
+  for (int l = -1; l <= 1; l++)
+    if (hits(atk.mask, l) && l != duel.lane) clash(laneX(l, LY1), LY1 + 4, FIRE, FIRE2, 6, 22);
+  if (!hits(atk.mask, duel.lane)) return guard ? strike(true) : void();  // missed him; a press as he swings strikes
+  float x = laneX(duel.lane, LY1);
+  if (guard) {
+    game.score += mult(), act(atk.fire ? BLOCK_STAFF : BLOCK_SWORD), good(), duel.counterT = T, duel.counterW = 0.9f - 0.45f * hard();
+    clash(x, LY1 - 4, atk.fire ? FIRE2 : LIGHT, atk.fire ? LIGHT : LIGHT2, 10, 30);
+  } else clash(x, LY1 + 4, FIRE, FIRE2, 12, 26), hurt();
+}
+
+void gameStart() {
+  game = pet::Game();
+  game.on = true;
+  duel = {}, atk = {};
+  duel.hp = HP, duel.gx = laneX(0, LY1), duel.guardT = duel.actT = duel.hitT = duel.whiteT = duel.counterT = atk.landT = -9;
+  for (auto &s : sparks) s.on = false;
+  white = 0;  // he earns the White in the fight
+  next(0.9f);
+  for (int y = 0; y < N; y++)  // the haze: brightest behind the Balrog, dark at the edges and down the chasm
+    for (int x = 0; x < N; x++) {
+      float v = 3.4f - hypotf((x - 40) * 0.75f, y - 28.f) / 12 - fmaxf(0, y - 50) * 0.15f;
+      v = clampf(v, 0, 3);
+      fb[y * N + x] = int(v) + (v - int(v) > bayer(x, y) && v < 3);
+    }
+  for (int x = 0; x < N; x++) {  // basalt columns on both sides of the chasm, lower toward the bridge
+    int c = x < 40 ? x / 4 : (79 - x) / 4, f = x < 40 ? x % 4 : 3 - (79 - x) % 4;
+    if (c > 3) continue;
+    int top = 44 + c * 5 + 5 * h01(c + (x < 40) * 9);
+    for (int y = top; y < N; y++)
+      px(x, y, y < top + 2 ? MID : f == 3 ? FAR2 : (x < 40 ? f == 2 : f == 0) ? MID2 : (y - top) % 7 == 6 ? FAR2 : FAR);
+  }
+  for (int y = 50; y < N; y++) {  // the bridge: pale cracked flagstones, crumbling edges, no rail
+    float hw = 7.5f + (y - 50) * 0.85f + 1.4f * (h01(y * 3) - 0.5f);
+    int r = sqrtf((y - 50) * 7.f), r0 = sqrtf((y - 51) * 7.f);
+    for (int x = 0; x < N; x++) {
+      float d = fabsf(x + 0.5f - 40), u = (x + 0.5f - 40) / (hw + 1) * 2.5f + r * 0.45f;
+      if (d >= hw) continue;
+      bool joint = y > 50 && r != r0, seam = u - floorf(u) < 0.12f * (1 + 6 / (y - 44.f));
+      px(x, y, y < 52 ? LANDL : d > hw - 1 ? LAND2 : joint || seam ? LAND2 : LAND);
+    }
+  }
+  for (int i = 0; i < 6; i++) {  // old cracks in the stone
+    float x = 40 + (h01(i * 5) - 0.5f) * (12 + i * 4), y = 56 + i * 4;
+    for (int k = 0; k < 4; k++) {
+      float nx = x + 2.5f * (h01(i * 9 + k) - 0.5f) * 2, ny = y + 1 + h01(i * 7 + k);
+      capsule(x, y, nx, ny, 0.3f, SHADOW), x = nx, y = ny;
+    }
+  }
+  memcpy(bg, fb, sizeof bg);
+  tint(clockMin);
+}
+
+void gameStop() {  // left with a long hold, or by find; back to the land
+  if (game.on && !game.dead && game.score > 0) finish();
+  game.on = false;
+  init();
+}
+
+void gameInput(bool held) {
+  if (held && !game.held) duel.tap = true;
+  game.held = held;
+}
+
+void gameTilt(float g) {  // sideways gravity in g, + = tilted right; hysteresis so a wobble doesn't flip the spot
+  int8_t &l = duel.lane;
+  if (game.on && !game.dead) l = g > (l == 1 ? TILT_OUT : TILT_IN) ? 1 : g < -(l == -1 ? TILT_OUT : TILT_IN) ? -1 : 0;
+}
+
+void gameStep(float dt) {
+  T += dt, game.t += dt, duel.t += dt;
+  duel.gx += (laneX(duel.lane, LY1) - duel.gx) * fminf(1, 16 * dt);
+  for (auto &s : sparks)
+    if (s.on) {
+      s.age += dt, s.vy += G * dt, s.x += s.vx * dt, s.y += s.vy * dt;
+      if (s.age > 1) s.on = false;
+    }
+  bool tap = duel.tap;
+  duel.tap = false;
+  if (game.dead) {  // he falls with the bridge; the firmware restarts on a press, gives up after 10 s
+    duel.fallV += 2 * G * dt, duel.fallY += duel.fallV * dt;
+    if (game.t > 10) gameStop();
+    return;
+  }
+  if (atk.on) {
+    atk.t += dt;
+    if (tap) duel.guardT = T, atk.whiff |= atk.t < atk.dur - EARLY;
+    tap = false;
+    if (windowOpen() && guarding() && !atk.whiff) land(true);
+    else if (atk.t >= atk.dur + atk.win) land(false);
+  }
+  if (game.dead) return;
+  if (duel.phase == FIGHT) {
+    if (tap && counter()) duel.counterT = -9, strike(true);
+    else if (!atk.on && !counter() && (duel.nextT -= dt) <= 0) {
+      if (duel.sinceOpen >= 4 || (duel.sinceOpen >= 2 && rnd() < 0.35f)) opening();
+      else attack();
+    }
+  } else if (duel.phase == GUARD) {
+    if (tap) {
+      strike(duel.lane == duel.open);
+      if (duel.phase == GUARD) next(0.6f);
+    } else if (duel.t > duel.win) next(0.4f);
+  } else if (duel.t > 3.4f) next(0.9f);  // FALL: down, and back up the far end
+}
+
+int solidC = -1;  // a figure all in one color (a hit, the White's flash)
+uint8_t sc(uint8_t c) { return solidC >= 0 ? solidC : c; }
+
+// Balrog: a demon of shadow and flame on the bridge's far end, bat wings spread; by lowers him (staggers, the fall).
+void tri(float x0, float y0, float x1, float y1, float x2, float y2, uint8_t c) {
+  for (int y = floorf(fminf(y0, fminf(y1, y2))); y <= fmaxf(y0, fmaxf(y1, y2)); y++)
+    for (int x = floorf(fminf(x0, fminf(x1, x2))); x <= fmaxf(x0, fmaxf(x1, x2)); x++) {
+      float qx = x + 0.5f, qy = y + 0.5f;
+      float a = (x1 - x0) * (qy - y0) - (y1 - y0) * (qx - x0), b = (x2 - x1) * (qy - y1) - (y2 - y1) * (qx - x1),
+            d = (x0 - x2) * (qy - y2) - (y0 - y2) * (qx - x2);
+      if ((a >= 0 && b >= 0 && d >= 0) || (a <= 0 && b <= 0 && d <= 0)) px(x, y, c);
+    }
+}
+void limb(float x0, float y0, float x1, float y1, float r0, float r1, uint8_t c) {
+  cone(x0, y0, r0 + 0.9f, x1, y1, r1 + 0.9f, sc(INK)), cone(x0, y0, r0, x1, y1, r1, sc(c));
+}
+// Bat-wing membrane: finger bones from the joint (jx, jy) to the tips, the skin between them sagging back toward it.
+void membrane(float jx, float jy, const float (*tip)[2], int n) {
+  for (int i = 0; i + 1 < n; i++)
+    for (int j = 0; j < 4; j++) {
+      float u0 = j / 4.f, u1 = (j + 1) / 4.f, s0 = 0.28f * sinf(3.1416f * u0), s1 = 0.28f * sinf(3.1416f * u1);
+      float ax = tip[i][0] + (tip[i + 1][0] - tip[i][0]) * u0, ay = tip[i][1] + (tip[i + 1][1] - tip[i][1]) * u0;
+      float bx = tip[i][0] + (tip[i + 1][0] - tip[i][0]) * u1, by = tip[i][1] + (tip[i + 1][1] - tip[i][1]) * u1;
+      tri(jx, jy, ax + (jx - ax) * s0, ay + (jy - ay) * s0, bx + (jx - bx) * s1, by + (jy - by) * s1, sc(ACC5));
+    }
+  for (int i = 0; i < n; i++) capsule(jx, jy, tip[i][0], tip[i][1], 0.5f, sc(ACC6)), px(tip[i][0], tip[i][1], sc(INK));
+}
+// His hands: the whip in the right (+1), fire in the left (-1). At rest the right fist is up with the whip, the left low.
+// Winding up, the hand rises over his horns and draws back trembling; as he strikes it's flung down, then comes back.
+void handAt(int side, float by, float &hx, float &hy) {
+  hx = side > 0 ? 61 : 21, hy = (side > 0 ? 39 : 58) + by;
+  if (side != (atk.fire ? -1 : 1)) return;
+  float since = T - atk.landT;
+  if (atk.on) {
+    float k = clampf(atk.t / 0.35f, 0, 1), p = fill();
+    k = k * k * (3 - 2 * k);
+    hx += (40 + side * 17 - hx) * k, hy += (28 + by - hy) * k;
+    if (p > 0.55f) hx += side * (p - 0.55f) * 6 + 0.6f * sinf(T * 70), hy -= (p - 0.55f) * 6;  // tensing
+  } else if (since < 0.5f) {
+    float k = clampf((since - 0.15f) / 0.35f, 0, 1), fx = 40 + side * 6, fy = 48 + by;
+    hx = fx + (hx - fx) * k, hy = fy + (hy - fy) * k;
+  }
+}
+// A lash of fire through the points of f(u), u 0..1: a glowing rope with a white-hot core.
+template <class F> void lash(F f, int n, float r0, float r1) {
+  float x0, y0, x1, y1;
+  f(0, x0, y0);
+  for (int s = 1; s <= n; s++, x0 = x1, y0 = y1) {
+    float u = float(s) / n;
+    f(u, x1, y1);
+    capsule(x0, y0, x1, y1, r0 + (r1 - r0) * u, FIRE);
+    if (s % 3) capsule(x0, y0, x1, y1, (r0 + (r1 - r0) * u) * 0.4f, MOON);
+  }
+}
+// His head, front on: the horns rise from the brow in two arches and sweep down past a narrow face, the fire behind
+// showing through between them; a scowl, the maw white-hot. Column 10 on his middle.
+const char *const HEAD[16] = {
+    "....KoooK...KoooK....", "...KoDDDoK.KoDDDoK...", "..KoDDDDDoKoDDDDDoK..", ".KoDDDDDDDKDDDDDDDoK.",
+    "KoDDDDDDDDoDDDDDDDDoK", "KDDDKKKKKdddKKKKKDDDK", "KDDK.KdeEKdKEedK.KDDK", "KDDK..KdddddDDK..KDDK",
+    "KDDK..KdddFdDDK..KDDK", "KDDDK.KdTYWYTDK.KDDDK", ".KDDDK.KdYWYDK.KDDDK.", "..KKDDKKdYWYDKKDDKK..",
+    "....KK.KdYWYDK.KK....", "........KdFdK........", "........KdddK........", ".........KdK.........",
+};
+// His body: an inverted triangle of rock lit along its tops by the fire on his back, the domed shoulders higher than
+// his neck, the waist melting into flame; the upper arms out to the elbows (rows 15, columns 3.5 and 36.5).
+// Column 20 on his middle.
+const char *const BALROG[20] = {
+    ".......KooooKKKKKK.....KKKKKKooooK.......", "......KoddddooooooK...KooooooddddoK......",
+    ".....KodddddddddddKKKKKdddddddddddoK.....", ".....KddddddddddddoooooddddddddddddK.....",
+    "....KodddDddddddoooodooooddddddDdddoK....", "....KdddDdddddooKKKKDKKKKoodddddDdddK....",
+    "...KoddDdddddKKKddddDddddKKKdddddDddoK...", "...KddddddddddddddddDddddddddddddddddK...",
+    "...KddddddddKdDdddddDdddddDdKddddddddK...", "..KoddDdddKK.KdDDDDdddDDDDdK.KKdddDddoK..",
+    "..KddDdddK...KddodddodddoddK...KdddDddK..", ".KoddodddK....KddoddEddoddK....KdddoddoK.",
+    ".KddodddK.....KdDDDDoDDDDdK.....KdddoddK.", ".KddddddK.....KddddododdddK.....KddddddK.",
+    "KodddddK.......KddodddoddK.......KdddddoK", "KddddddK.......KDDDDdDDDDK.......KddddddK",
+    ".KddddK.........KddododdK.........KddddK.", "..KddK..........KdddddddK..........KddK..",
+    "...KK...........KdddddddK...........KK...", ".................KdddddK.................",
+};
+// Sprite letters: K outline, D dark rock, d rock, o lit edge or lava, E/e eyes and the furnace, W/Y/F the maw's fire,
+// T fangs.
+void sprite(const char *const *rows, int h, int col, float cx, float top) {
+  static const char K[] = "KDdoEeWYFT";
+  const uint8_t C[] = {INK, ACC2, ACC1, ACC3, ACC4, ACC3, MOON, FIRE2, FIRE, LANDL};
+  for (int r = 0; r < h; r++)
+    for (int c = 0; rows[r][c]; c++)
+      if (const char *k = strchr(K, rows[r][c])) px(lroundf(cx) - col + c, lroundf(top) + r, k - K < 3 ? sc(C[k - K]) : C[k - K]);
+}
+void drawBalrog(float by, bool guard) {
+  const float HY = 25 + by, BY = HY + 9;  // the tops of his head and his body
+  float flap = sinf(T * 1.6f) * 2.5f;
+  for (int s = -1; s <= 1; s += 2) {  // wings: up from the shoulder to the wrist, fingers fanning down
+    float ax = 40 + s * 9, ay = BY + 4, wx = 40 + s * 25, wy = 22 + flap + by;
+    const float tip[5][2] = {{40 + s * 39.f, 15 + flap * 1.4f + by}, {40 + s * 41.f, 30 + flap * 0.8f + by},
+                             {40 + s * 36.f, 44 + by}, {40 + s * 27.f, 52 + by}, {40 + s * 15.f, 54 + by}};
+    tri(ax, ay, wx, wy, tip[4][0], tip[4][1], sc(ACC5));
+    membrane(wx, wy, tip, 5);
+    limb(ax, ay, wx, wy, 1.5f, 0.9f, ACC6);
+    capsule(ax, ay - 1.5f, wx, wy - 1, 0.4f, ACC3), capsule(wx, wy - 1, tip[0][0], tip[0][1] - 0.5f, 0.3f, ACC3);  // fire-lit edge
+    px(wx, wy - 2.5f, sc(INK)), px(wx + s, wy - 2.5f, sc(INK));  // the claw on the wrist
+  }
+  for (int y = HY - 6; y < BY + 6; y++)  // the blaze behind him, his head dark against it
+    for (int x = 24; x <= 56; x++)
+      if (powf((x + 0.5f - 40) / 15, 2) + powf((y + 0.5f - HY - 5) / 11, 2) < 1) px(x, y, (x + y) & 1 ? CLOUD : SKY3);
+  for (int k = 0; k < 9; k++) {  // fire roaring up from the back of his head and his shoulders
+    float c = (k - 4) / 2.f, fx = 40 + (k - 4) * (fabsf(c) > 1.2f ? 3.4f : 1.8f), fy = HY + 3 + fabsf(c) * 2;
+    float h = 7 + 11 * expf(-c * c) + 3 * sinf(T * 9 + k * 1.7f), sw = sinf(T * 5 + k) * 1.4f;
+    cone(fx, fy, 2, fx + sw, fy - h, 0.3f, k & 1 ? FIRE : ACC3);
+    cone(fx, fy, 0.9f, fx + sw * 0.8f, fy - h * 0.6f, 0.2f, FIRE2);
+  }
+  sprite(BALROG, 20, 20, 40, BY);
+  if (sinf(T * 4) > 0.3f) px(40, BY + 11, MOON);  // the furnace in his chest pulses
+  for (int k = 0; k < 7; k++) {  // his waist melting into fire
+    float fx = 34 + k * 2 + sinf(T * 3 + k), h = 4 + 3 * sinf(T * 7 + k * 2.1f), sw = sinf(T * 4 + k) * 1.2f;
+    cone(fx, BY + 21, 1.8f, fx + sw, BY + 16 - h, 0.3f, k & 1 ? FIRE : ACC3), cone(fx, BY + 21, 0.8f, fx + sw, BY + 18 - h, 0.2f, FIRE2);
+  }
+  for (int s = -1; s <= 1; s += 2) {  // forearms from the sprite's elbows, big fists
+    float hx, hy, ex = 40 + s * 16.5f, ey = BY + 15;
+    handAt(s, by, hx, hy);
+    limb(ex, ey, hx, hy, 2.6f, 2.2f, ACC1);
+    capsule(ex, ey - 1.5f, hx, hy - 1.5f, 0.35f, ACC3);
+    disc(hx, hy, 3.2f, sc(INK)), disc(hx, hy, 2.3f, sc(ACC1)), px(hx - 1, hy - 1, ACC3), px(hx + 1, hy - 1, ACC3);
+    if (atk.on && atk.fire && s < 0) {  // a fireball growing in the hand while he winds up
+      float p = fill();
+      disc(hx, hy - 2, 1.5f + 2.5f * p + sinf(T * 20) * 0.5f, FIRE), disc(hx, hy - 2, 0.8f + 1.2f * p, MOON);
+    }
+  }
+  sprite(HEAD, 16, 10, 40, HY);
+  if (guard)
+    for (int l = -1; l <= 1; l++) {  // shielding: the wings wrapped over his body, one side left open; the head stays up
+      if (l == duel.open) continue;
+      float cx = guardX(l);
+      const float tip[3][2] = {{cx - 6.5f, 57 + by}, {cx, 60 + by}, {cx + 6.5f, 57 + by}};
+      tri(cx - 6.5f, 46 + by, cx + 6.5f, 46 + by, cx, 41 + by, sc(ACC5)), fillIf(cx - 5.5f, 46 + by, cx + 5.5f, 50 + by, sc(ACC5));
+      membrane(cx, 43 + by, tip, 3);
+      capsule(cx - 6.5f, 46 + by, cx, 41 + by, 0.5f, ACC3), capsule(cx, 41 + by, cx + 6.5f, 46 + by, 0.5f, ACC3);
+      px(cx, 39 + by, INK);
+    }
+  if (atk.fire || T - atk.landT > BURST) {  // but as it cracks: his whip hangs from the right fist into the chasm
+    float hx, hy;
+    handAt(1, by, hx, hy);
+    lash([&](float u, float &x, float &y) {
+      x = hx + (70 - hx) * u + 5 * sinf(u * 6.3f + T * 2) * u, y = hy + 2 + (80 - hy) * u;
+    }, 14, 0.9f, 0.5f);
+  }
+}
+
+// Gandalf from behind, at z of his scene size: hat (the Grey) or white hair, robe, the staff in his right hand,
+// Glamdring in his left.
+void swordAt(float x0, float y0, float x1, float y1) {  // hilt to tip
+  float dx = x1 - x0, dy = y1 - y0, l = hypotf(dx, dy) + 1e-6f, cx = -dy / l * 1.7f, cy = dx / l * 1.7f;
+  capsule(x0, y0, x1, y1, 1, sc(INK)), capsule(x0, y0, x1, y1, 0.4f, sc(BUCKLE));
+  capsule(x0 + dx * 0.5f, y0 + dy * 0.5f, x0 + dx * 0.8f, y0 + dy * 0.8f, 0.3f, sc(LIGHT));  // the blade's glint
+  capsule(x0 - cx, y0 - cy, x0 + cx, y0 + cy, 0.5f, sc(BELT));
+}
+void staffAt(float x0, float y0, float x1, float y1) {  // foot to head
+  capsule(x0, y0, x1, y1, 1.1f, sc(INK)), capsule(x0, y0, x1, y1, 0.45f, sc(STAFF));
+  disc(x1, y1, 1.7f, sc(INK)), disc(x1, y1, 0.9f, sc(white > 0.5f || game.on ? LIGHT : STAFF2));
+  if (game.on && solidC < 0) ring(x1, y1, 2.6f + 0.4f * sinf(T * 7), 2.6f, LIGHT2, 0.35f);  // its light against the fire
+}
+void handOn(float sx, float sy, float hx, float hy) {  // a sleeve from the shoulder, the hand
+  sleeve(sx, sy, hx, hy, solidC);
+  disc(hx, hy, 1.3f, sc(INK)), disc(hx, hy, 0.7f, sc(SKIN));
+}
+void drawBack(float x, float y) {
+  const float z = 0.8f;
+  float since = T - duel.actT, k = clampf(since / 0.12f, 0, 1);
+  int a = since < (duel.act == SLAM_DOWN ? 1.2f : 0.4f) ? duel.act : READY;
+  if (a == READY && guarding() && atk.on)  // guard up for GUARD_S s after a press
+    a = atk.fire ? BLOCK_STAFF : BLOCK_SWORD, k = 1;
+  if (a == BLOCK_SWORD || a == BLOCK_STAFF) k = 1;  // a block follows the guard: already up
+  if (a == HURT) y += 1.5f * (1 - since / 0.4f), solidC = since < 0.12f ? FIRE : -1;
+  if (T - duel.whiteT < 0.15f) solidC = LIGHT;
+  if (a == STRIKE_SWORD || a == STRIKE_STAFF) y -= 2 * k;
+  auto X = [&](float d) { return x + d * z; };
+  auto Y = [&](float d) { return y - d * z; };  // d: up from his feet
+  float S = 15, H = 20, tx = duel.strikeX;
+  if (!game.dead) ellipse(x, y, 7 * z, 1.4f, SHADOW);
+  tri(X(-4.6f), Y(S + 0.5f), X(4.6f), Y(S + 0.5f), X(-7.6f), y, sc(INK)), tri(X(4.6f), Y(S + 0.5f), X(7.6f), y, X(-7.6f), y, sc(INK));
+  tri(X(-3.6f), Y(S), X(3.6f), Y(S), X(-6.4f), Y(1), sc(ROBE2)), tri(X(3.6f), Y(S), X(6.4f), Y(1), X(-6.4f), Y(1), sc(ROBE2));
+  tri(X(-3.6f), Y(S), X(-0.5f), Y(S), X(-6.4f), Y(1), sc(ROBE)), tri(X(-0.5f), Y(S), X(-2), Y(1), X(-6.4f), Y(1), sc(ROBE));
+  for (int r = 3; r < S - 2; r += 3) px(X(1.5f), Y(r), sc(ROBE3)), px(X(4), Y(r - 1), sc(ROBE3));
+  ellipse(x, Y(S - 0.5f), 4 * z, 4 * z, sc(INK)), ellipse(x, Y(S - 0.5f), 3.1f * z, 3.2f * z, sc(HAIR2));  // hair down his back
+  px(X(-1), Y(S), sc(HAIR1)), px(X(1), Y(S - 1.5f), sc(HAIR1)), px(x, Y(S - 3), sc(HAIR1));
+  if (white < 0.5f) {  // the Grey's hat: wide brim, a bent point
+    ellipse(x, Y(H - 1), 6.6f * z, 2 * z, sc(INK)), ellipse(x, Y(H - 1), 5.6f * z, 1.1f * z, sc(HAT2));
+    cone(x, Y(H - 0.5f), 3.4f * z, X(2), Y(H + 7), 0.9f * z, sc(INK)), cone(x, Y(H - 0.5f), 2.4f * z, X(2), Y(H + 6.5f), 0.3f, sc(HAT));
+    cone(X(2), Y(H + 7), 0.9f * z, X(4), Y(H + 9), 0.4f, sc(INK));
+  } else disc(x, Y(H - 0.5f), 3.6f * z, sc(INK)), disc(x, Y(H - 0.5f), 2.8f * z, sc(HAIR1)), px(X(1), Y(H - 1), sc(HAIR2));
+  float lsx = X(-4), rsx = X(4), sy = Y(S - 1);  // shoulders
+  auto restSword = [&] { swordAt(X(-6.5f), Y(11), X(-11), Y(4)), handOn(lsx, sy, X(-6), Y(11)); };
+  auto restStaff = [&] { staffAt(X(7), y, X(7.5f), Y(24)), handOn(rsx, sy, X(6.6f), Y(12)); };
+  switch (a) {
+    case BLOCK_SWORD:  // Glamdring across, over his head
+      restStaff(), handOn(lsx, sy, X(-4), Y(H + 3)), swordAt(X(-5), Y(H + 3), X(10), Y(H + 6 * k));
+      break;
+    case BLOCK_STAFF: {  // the staff stays down, a dome of white light around him
+      restSword(), restStaff();
+      float rx = 11 * k, ry = 24 * k;
+      for (int py = y - ry; py <= y; py++)
+        for (int px_ = x - rx; px_ <= x + rx; px_++) {
+          float d = hypotf((px_ + 0.5f - x) / rx, (py + 0.5f - y) / ry);
+          if (d < 1 && d > 0.88f) px(px_, py, LIGHT);
+          else if (d < 0.88f && d > 0.6f && !((px_ + py) & 1) && !(py & 1)) px(px_, py, LIGHT2);  // its shimmer
+        }
+      break;
+    }
+    case STRIKE_SWORD:  // thrust up toward the opening
+      restStaff(), handOn(lsx, sy, X(-2), Y(H + 2));
+      swordAt(X(-2), Y(H + 2), X(-2) + (tx - x) * 0.3f * k, Y(H + 2 + 13 * k));
+      break;
+    case STRIKE_STAFF:  // staff raised, a bolt of light
+    case SLAM_DOWN: {   // raised, then slammed down on the bridge
+      float up = a == SLAM_DOWN ? (since < 0.4f ? since / 0.4f : since < 0.5f ? 1 - (since - 0.4f) / 0.1f : 0) : k;
+      restSword(), staffAt(X(6), Y(2 + 10 * up), X(6.5f), Y(26 + 10 * up)), handOn(rsx, sy, X(6), Y(13 + 10 * up));
+      break;
+    }
+    default: restSword(), restStaff();
+  }
+  solidC = -1;
+}
+
+// A cyan target on the Balrog at x (strike here), with an arrow over it; left: share of the chance still open.
+void mark(float x, float left) {
+  float r = 2.5f + 2.5f * clampf(left, 0, 1), b = 1.5f * sinf(T * 10);
+  ring(x, MY, r + 0.8f, r + 0.8f, INK), ring(x, MY, r, r, SPARK2), ring(x, MY, r - 0.6f, r - 0.6f, SPARK2);
+  disc(x, MY, 1.2f, LIGHT);
+  for (int i = 0; i < 4; i++) {  // the arrow, pointing down at it
+    float y = MY - r - 4 - i + b;
+    for (int dx = -i; dx <= i; dx++) px(x + dx, y, dx == -i || dx == i ? INK : SPARK2);
+  }
+}
+void gameDraw() {
+  memcpy(fb, bg, sizeof fb);
+  for (int layer = 0; layer < 2; layer++)  // fire roaring up out of the chasm behind him: a tall dark-orange back
+    for (int k = 0; k < 24; k++) {           // row, a shorter bright one in front, every tongue its own height
+      float fx = k * 3.5f + 3 * h01(k + layer * 40) + sinf(T * 1.3f + k), g = expf(-powf((fx - 40) / 16, 2));
+      float h = (6 + 16 * h01(k * 3 + layer * 7) + 20 * g) * (layer ? 0.6f : 1) * (0.75f + 0.25f * sinf(T * (2.5f + h01(k)) + k * 1.3f));
+      float base = 56 - 3 * g + 3 * h01(k * 5 + layer), sw = 2.5f * sinf(T * 2.3f + k * 0.7f);
+      cone(fx, base, 2.4f + 2 * g, fx + sw, base - h, 0.3f, layer ? CLOUD : CLOUD2);
+    }
+  for (int k = 0; k < 5; k++) {  // smoke rolling along the top
+    float sx = fmodf(h01(k) * 100 + T * (2 + k), 100) - 10, sy = 3 + 3 * k;
+    ellipse(sx, sy, 6 + 2 * h01(k + 3), 2.2f, k & 1 ? STAR : SUN);
+  }
+  for (int i = 0; i < N * N; i++)  // all of that only on the haze: behind the bridge and the cliffs
+    if (bg[i] > SKY3) fb[i] = bg[i];
+  for (int k = 0; k < 20; k++) {  // embers rising from the abyss
+    float sp = 8 + 10 * h01(k + 7), y = N - fmodf(T * sp + h01(k + 3) * N, N), x = h01(k) * N + 2 * sinf(T * 2 + k);
+    if (at(x, y) <= MOON) px(x, y, k & 1 ? MOON : LAMP);
+  }
+  for (int x = 0; x < N; x++)  // the fire's glow flickering up from far below
+    for (int y = 76 - 3 * (sinf(T * 3 + x * 0.4f) + 1) * (sinf(x * 0.13f) + 1.2f); y < N; y++)
+      if (at(x, y) <= SKY3) px(x, y, (x + y) & 1 ? WATER : WATER2);
+  // The Balrog: staggers when struck, falls through the broken far end and climbs back.
+  float by = T - duel.hitT < 0.3f ? 2 * (1 - (T - duel.hitT) / 0.3f) : 0, ft = duel.t;
+  bool falling = duel.phase == FALL && ft > 0.6f;
+  if (falling) by += ft < 2.2f ? 70 * powf((ft - 0.6f) / 1.6f, 2) : 40 * clampf((3.4f - ft) / 1.2f, 0, 1);
+  if (by < 40) {
+    if (T - duel.hitT < 0.08f) solidC = LIGHT;
+    drawBalrog(by, duel.phase == GUARD);
+    solidC = -1;
+  }
+  if (falling)  // he's behind the bridge now; its far end broken away while he drops
+    for (int y = 50; y < N; y++)
+      for (int x = 0; x < N; x++) {
+        uint8_t b = bg[y * N + x];
+        if (b >= LAND && b <= LANDL) fb[y * N + x] = y < 53 + 2 * h01(x) && ft < 2.2f ? WATER2 : b;
+      }
+  if (duel.phase == GUARD) {  // the open side: a cyan mark on him, a dashed path to it; it shrinks as the chance runs out
+    mark(guardX(duel.open), 1 - duel.t / duel.win);
+    for (float y = 52; y < 70; y += 3)
+      if (fmodf(y / 3 - T * 5, 2) < 1) px(laneX(duel.open, y), y, SPARK2);
+  }
+  if (counter()) mark(guardX(duel.lane), 1 - (T - duel.counterT) / duel.counterW);  // the free strike, right where he stands
+  for (int i = 0; i < duel.cracks && i < CRACKS; i++) {  // cracks across the bridge at his feet
+    float x = 26 + i * 14 + 4 * h01(i), y = 79;
+    for (int s = 0; s < 9; s++) {
+      float nx = x + 3 * (h01(i * 31 + s) - 0.5f), ny = y - 1.5f - h01(i * 17 + s);
+      capsule(x, y, nx, ny, 0.4f, s & 1 ? SHADOW : INK), x = nx, y = ny;
+    }
+  }
+  if (atk.on)  // where he'll strike: a red ring closing on each marked lane; closed, it bursts white: press now
+    for (int l = -1; l <= 1; l++) {
+      if (!hits(atk.mask, l)) continue;
+      float x = laneX(l, MY), p = fill(), r = 2.4f + 3.6f * (1 - p), w = atk.t - atk.dur;
+      ring(x, MY, r + 0.8f, r + 0.8f, INK), ring(x, MY, r, r, w < 0 ? SPARK1 : MOON), ring(x, MY, r - 0.6f, r - 0.6f, SPARK1);
+      disc(x, MY, 2.3f, INK), disc(x, MY, 1.5f, w < 0 ? SPARK1 : MOON);
+      if (w >= 0 && w < 0.1f) ring(x, MY, 4 + 40 * w, 4 + 40 * w, MOON);  // the mark bursting
+    }
+  float ls = T - atk.landT;
+  if (ls < BURST) {  // the blow: the whip cracking down every marked lane, or fire bursting on them
+    float q = ls / BURST, hx, hy;
+    handAt(atk.fire ? -1 : 1, 0, hx, hy);
+    for (int l = -1; l <= 1; l++) {
+      if (!hits(atk.mask, l)) continue;
+      float x = laneX(l, LY1), y = LY1 + 1;
+      if (atk.fire) {
+        if (q < 0.4f) cone(hx, hy, 1, x, y, 2.5f, FIRE), capsule(hx, hy, x, y, 0.6f, FIRE2);
+        disc(x, y, 2 + 5 * q, q < 0.5f ? FIRE : ACC3), disc(x, y, 3.5f * (1 - q), FIRE2), disc(x, y, 1.8f * (1 - q), MOON);
+      } else {
+        lash([&](float u, float &lx, float &ly) {
+          lx = hx + (x - hx) * u + 3 * (1 - u) * sinf(u * 9 - T * 24), ly = hy + (y - hy) * u - 7 * sinf(u * 3.1416f);
+        }, 12, 0.6f, 1.1f);
+        disc(x, y, 2.5f * (1 - q) + 0.8f, FIRE2), disc(x, y, 1.2f * (1 - q), MOON);
+      }
+    }
+  }
+  float gy = GY + (game.dead ? duel.fallY : 0);
+  if (game.dead)  // the bridge's near end gone: the abyss where he stood
+    for (int y = 64; y < N; y++)
+      for (int x = 0; x < N; x++)
+        if (at(x, y) >= LAND && at(x, y) <= LANDL && fabsf(x - duel.gx) < 10 + (y - 64) * 0.6f + 2 * h01(x + y * 7)) px(x, y, y > 74 ? WATER : WATER2);
+  if (gy < N + 30) drawBack(duel.gx, gy);
+  float since = T - duel.actT;
+  bool landed = T - duel.hitT < 0.3f;
+  if (duel.act == STRIKE_STAFF && since < 0.3f && landed)  // the bolt from the staff
+    capsule(duel.gx + 5, GY - 29, duel.strikeX, MY, 1.4f * (1 - since / 0.3f), LIGHT2),
+        capsule(duel.gx + 5, GY - 29, duel.strikeX, MY, 0.6f, LIGHT);
+  if (duel.act == STRIKE_SWORD && since < 0.3f && landed) {  // the slash across him
+    float ox = duel.strikeX;
+    for (int k = 0; k < 9; k++) {
+      float a = -2.4f + k * 0.2f + since * 6;
+      px(ox + 6 * cosf(a), MY + 6 * sinf(a), k & 1 ? LIGHT : LIGHT2);
+    }
+  }
+  if (duel.act == SLAM_DOWN && since > 0.45f && since < 1.4f) {  // the ring of light along the bridge
+    float r = 4 + 40 * (since - 0.45f);
+    ring(duel.gx, GY, r, r * 0.3f, LIGHT, clampf((since - 0.45f) * 1.2f, 0, 0.9f));
+    ring(duel.gx, GY, r * 0.8f, r * 0.24f, LIGHT2, clampf((since - 0.45f) * 1.5f, 0, 0.9f));
+  }
+  if (T - duel.whiteT < 0.7f) {  // the White: rays of light out of him
+    float k = (T - duel.whiteT) / 0.7f;
+    for (int i = 0; i < 12; i++) {
+      float a = i * 0.5236f, r0 = 6 + 20 * k, r1 = r0 + 5 * (1 - k);
+      capsule(duel.gx + r0 * cosf(a), GY - 13 + r0 * sinf(a), duel.gx + r1 * cosf(a), GY - 13 + r1 * sinf(a), 0.5f, LIGHT);
+    }
+  }
+  for (auto &s : sparks)
+    if (s.on) px(s.x, s.y, s.c);
+}
+
+// Bubble text: score and high score; the level as the Balrog falls; the result after a game over.
+void gameLabel(char *out, int cap) {
+  int best = pet::best() > game.score ? pet::best() : game.score;
+  if (game.dead) snprintf(out, cap, game.newBest ? "NEW BEST %d" : "%d BEST %d", game.score, best);
+  else if (duel.phase == FALL) snprintf(out, cap, "LEVEL %d", duel.level + 1);
+  else snprintf(out, cap, "%d HI %d", game.score, best);
+}
+
 void step(float dt) {
+  if (game.on) return gameStep(dt), gameDraw();
   update(dt);
   weatherStep(dt);
   memcpy(fb, bg, sizeof fb);

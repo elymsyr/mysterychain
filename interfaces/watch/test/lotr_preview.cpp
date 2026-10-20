@@ -2,6 +2,9 @@
 //   g++ -std=c++17 -O2 -I../firmware -I ~/Arduino/libraries/Adafruit_GFX_Library lotr_preview.cpp -o /tmp/lotr_g
 //   g++ ... -DSAURON ... -o /tmp/lotr_s
 //   /tmp/lotr_g <out dir> [clip]
+// The Gandalf build first runs the bridge game's self-check (a bot that plays it right never cracks the bridge, one
+// that never presses breaks it).
+#include <cassert>
 #include <cstdio>
 #include <functional>
 #include <string>
@@ -72,6 +75,13 @@ void run(const Clip &c, const char *dir) {
     c.act(t, t + FRAME_S);
     step(FRAME_S);
     if (msg[0] && t - msgT0 <= msgDur) bubble(msg, t - msgT0);
+#ifndef SAURON
+    if (game.on) {
+      char s[24];
+      gameLabel(s, sizeof s);
+      bubble(s, t, game.labelY);
+    }
+#endif
     uint8_t pal[256][3] = {};
     memcpy(pal, PAL, sizeof PAL);
     fwrite(pal, 1, sizeof pal, f);
@@ -84,7 +94,48 @@ void run(const Clip &c, const char *dir) {
   printf("%s\n", c.name.c_str());
 }
 
+#ifndef SAURON
+// The bridge game's bot, at the firmware's input rate: stays in its lane and taps `react` s after the ring closes
+// (a block, or a strike if he isn't aiming there), taps the free strike; tilts to the open side while he shields.
+void bot(bool play, float react = 0) {
+  static bool held = false;
+  gameTilt(play ? (duel.phase == GUARD ? duel.open : duel.lane) * 0.3f : 0);
+  bool want = duel.phase == GUARD ? duel.lane == duel.open : counter() || (windowOpen() && atk.t - atk.dur >= react);
+  held = play && want && !held;  // a tap: down one frame, up the next
+  gameInput(held);
+}
+void selfCheck() {
+  for (int play = 1; play >= 0; play--) {
+    init();
+    gameStart();
+    for (float t = 0; t < 90 && !game.dead; t += 0.045f) bot(play), step(0.045f);
+    printf("bridge bot %s: score %d level %d cracks %d white %d\n", play ? "plays" : "idle", game.score, duel.level, duel.cracks, white > 0.5f);
+    if (play) assert(duel.cracks == 0 && duel.level >= 3 && white > 0.5f);
+    else assert(game.dead && game.score == 0);
+    gameStop();
+  }
+  init();  // a masher taps all the time: every blow is a whiff
+  gameStart();
+  for (float t = 0; t < 90 && !game.dead; t += 0.045f) gameInput(int(t / 0.045f) & 1), step(0.045f);
+  printf("bridge masher: score %d level %d dead %d\n", game.score, duel.level, game.dead);
+  assert(game.dead);
+  gameStop();
+  for (float react : {0.15f, 0.25f}) {  // a human reacting to the burst: not asserted, shows where the window bites
+    init();
+    gameStart();
+    float t = 0;
+    for (; t < 300 && !game.dead; t += 0.045f) bot(true, react), step(0.045f);
+    printf("bridge bot reacting in %.2f s: score %d level %d lasted %.0f s\n", react, game.score, duel.level, t);
+    gameStop();
+  }
+  pet::best() = 0;  // the clips start from no high score
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifndef SAURON
+  selfCheck();
+#endif
   const char *dir = argc > 1 ? argv[1] : ".";
   auto idle = [](float, float) {};
   using namespace pet;
@@ -116,6 +167,8 @@ int main(int argc, char **argv) {
       {"grey_to_white", 12 * 60, CLOUDY, 5, [](float a, float b) { if (at(a, b, 0.6f)) pet::wx = CLEAR; }},
       {"white_to_grey", 12 * 60, CLEAR, 5, [](float a, float b) { if (at(a, b, 0.6f)) pet::wx = RAIN; }},
       {"daycycle", -2, CLOUDY, 12, idle},
+      {"bridge", 22 * 60, CLOUDY, 40, [](float a, float) { if (a == 0) gameStart(); bot(true); }},
+      {"bridge_lost", 22 * 60, CLOUDY, 16, [](float a, float) { if (a == 0) gameStart(); bot(a < 4); }},
 #endif
   };
   for (const Clip &c : clips)

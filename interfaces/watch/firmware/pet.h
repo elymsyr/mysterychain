@@ -89,10 +89,12 @@ struct Ob {
 struct Game {
   bool on, dead, ended, newBest, held, fixedSpeed;  // ended: game over event for the firmware (it clears it)
   int8_t labelY = 11;                                // bubble row while the game runs
+  uint8_t buzz;                                      // vibration pulses the game asks for (the firmware buzzes, clears it)
   int score;
   float t, speed, dist, air;  // t: since start or game over; air: since take-off, < 0 on the ground
   Ob ob[6];  // 6: the cat's wide view shows ~144 px, a new one still comes in off screen
 } runner;
+bool palDirty;  // a scene changed its palette between the firmware's once-a-minute retints: rebuild it this frame
 
 // Time of day (K6): each scene keeps a palette look per keyframe; between keyframes the looks blend linearly.
 enum Look : uint8_t { NIGHT, DAWN, DAY, DUSK };
