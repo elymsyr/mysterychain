@@ -77,6 +77,7 @@ class _PetPageState extends State<PetPage> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               header(connected),
               if (k.stats != null) statsPanel(k.stats!),
+              if (k.paired) weatherRow(),
               ...setup(),
               const Divider(),
               Padding(
@@ -146,24 +147,84 @@ class _PetPageState extends State<PetPage> {
               ]),
             ]),
           ),
-          if (k.settings != null)
-            IconButton(
-              onPressed: connected ? openSettings : null,
-              icon: const Icon(Icons.settings_outlined),
-              color: text2,
-              tooltip: 'Settings',
-            ),
+          IconButton(
+            onPressed: openSettings, // also offline: the link's on/off switch is there
+            icon: const Icon(Icons.settings_outlined),
+            color: text2,
+            tooltip: 'Settings',
+          ),
         ]),
       );
 
-  // Under the header: today's steps and mood (the pet's 0-100 stats stay on the board).
+  // Under the header: today's steps and mood (the pet's 0-100 stats stay on the board), and the weather it shows.
   Widget statsPanel(Stats s) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Text('${s.steps} steps today · ${s.mood}', style: const TextStyle(fontSize: 13, color: text2)),
       );
 
-  // What's still missing, in order: the link needs the first three, calls and music need Notification access,
-  // and Xiaomi stops background apps unless allowed.
+  static const wxIcons = {
+    'clear': Icons.wb_sunny_outlined,
+    'cloudy': Icons.cloud_outlined,
+    'wind': Icons.air,
+    'rain': Icons.umbrella_outlined,
+    'snow': Icons.ac_unit,
+    'storm': Icons.thunderstorm_outlined,
+  };
+
+  // The weather the keychain shows (the next 4 hours) and where it's for; tap to choose the place
+  Widget weatherRow() => InkWell(
+        onTap: pickPlace,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(children: [
+            Icon(wxIcons[k.weather] ?? Icons.cloud_off_outlined, size: 18, color: text2),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                  k.weather == null
+                      ? 'No weather yet · choose a place'
+                      : '${k.weather![0].toUpperCase()}${k.weather!.substring(1)} next 4 h · ${k.place}',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: text2)),
+            ),
+            const Icon(Icons.edit_location_alt_outlined, size: 18, color: text3),
+          ]),
+        ),
+      );
+
+  Future<void> pickPlace() async {
+    final field = TextEditingController(text: k.picked);
+    final name = await showDialog<String?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Weather place'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Used while the phone\'s location is off. None: the last place the phone was.',
+              style: TextStyle(fontSize: 13, color: text2)),
+          TextField(
+            controller: field,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'City'),
+            onSubmitted: (v) => Navigator.pop(context, v),
+          ),
+        ]),
+        actions: [
+          if (k.picked.isNotEmpty) TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('Clear')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, field.text), child: const Text('Set')),
+        ],
+      ),
+    );
+    field.dispose();
+    if (name == null) return; // cancelled
+    final found = await k.setPlace(name.trim().isEmpty ? null : name.trim());
+    if (found == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No place called "${name.trim()}" (or offline)')));
+    }
+  }
+
+  // What's still missing, in order: the link needs the first three, calls and music need Notification access, the
+  // weather needs the location, and Xiaomi stops background apps unless allowed.
   List<Widget> setup() => [
         if (!k.permitted)
           setupRow(Icons.bluetooth_disabled, 'Allow Nearby devices to reach the keychain', 'Open', k.openAppInfo)
@@ -172,6 +233,7 @@ class _PetPageState extends State<PetPage> {
         else if (!k.paired)
           setupRow(Icons.link, 'Pair with your keychain', 'Pair', pair),
         if (!k.access) setupRow(Icons.music_note_outlined, 'Show calls and music on the keychain', 'Allow', k.openAccess),
+        if (k.paired && !k.location && k.picked.isEmpty) setupRow(Icons.wb_cloudy_outlined, 'Allow location for the weather on the keychain', 'Open', k.openAppInfo),
         if (k.autostart)
           setupRow(Icons.battery_saver_outlined, 'Xiaomi: turn on Autostart, set Battery saver to No restrictions', 'Open',
               () => k.openAppInfo(autostart: true)),

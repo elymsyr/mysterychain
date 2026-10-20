@@ -1,4 +1,5 @@
-// Pet settings, kept on the board: every change goes out as `#set ...` at once; the board answers with `settings`.
+// The link's on/off switch (the phone), then the pet settings, kept on the board: every change goes out as `#set ...`
+// at once; the board answers with `settings`. Pet settings show only once the board has sent them.
 import 'package:flutter/material.dart';
 
 import 'character_list.dart';
@@ -15,7 +16,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late Settings s = widget.k.settings!;
+  late Settings s = widget.k.settings!; // late: read only once the board's settings are in
 
   void set(String cmd, Settings next) {
     setState(() => s = next);
@@ -32,15 +33,32 @@ class _SettingsPageState extends State<SettingsPage> {
         onChanged: (h) => on(h!),
       );
 
+  static const label = TextStyle(fontSize: 13, color: text2), hint = TextStyle(fontSize: 13, color: text3);
+
   Settings get live => widget.k.settings ?? s; // the board's latest look and names: a change here never undoes a pick
 
   @override
   Widget build(BuildContext context) {
-    const label = TextStyle(fontSize: 13, color: text2), hint = TextStyle(fontSize: 13, color: text3);
-    final nightOn = s.from != s.to;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+      body: ListenableBuilder(listenable: widget.k, builder: (context, _) => ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Keychain link'),
+          subtitle: const Text('Off: no connection, calls, music or weather until it\'s on again', style: hint),
+          value: widget.k.service,
+          onChanged: widget.k.setService,
+        ),
+        const Divider(),
+        const SizedBox(height: 8),
+        if (widget.k.settings != null) ...pet(),
+      ])),
+    );
+  }
+
+  List<Widget> pet() {
+    final nightOn = s.from != s.to;
+    return [
         const Text('Character', style: label),
         const SizedBox(height: 8),
         CharacterList(widget.k),
@@ -85,7 +103,6 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(width: 12),
             hour(s.to, (h) => night(s.from, h)),
           ]),
-      ]),
-    );
+    ];
   }
 }

@@ -55,3 +55,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    testImplementation("junit:junit:4.13.2") // src/test: Weather's forecast rules (./gradlew :app:testDebugUnitTest)
+}

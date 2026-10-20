@@ -8,10 +8,11 @@ Flutter companion app (Android). Connects to the keychain over BLE (Nordic UART 
 - **Quick reactions:** ♥ (hearts on the keychain), On my way, Where are you?, Good night, Miss you. The list is `reactions` in `lib/main.dart`.
 - Sends text: it scrolls in the pet's speech bubble and the motor buzzes twice.
 - **Calls and music, app open or not:** while a call rings, the caller's name shows on the keychain and it buzzes until the call is answered or ends; when the playing track changes (Spotify, YouTube Music, any player with a media notification), title and artist show in the bubble. Needs Notification access.
+- **Weather:** on every connect and every hour while connected, the next 4 hours from [open-meteo](https://open-meteo.com) (free, no key) go to the keychain as one kind, the worst hour winning (storm, snow, rain, wind, cloudy, clear; rules and wind thresholds in `Weather.kt`). The pet acts it out and the clock shows its icon; the app shows its icon and place under the header. Where: the phone's coarse location when it's on (saved whenever the app is open, as Android gives the background link no location of its own), else a place chosen by name (tap the weather row; open-meteo geocoding), else the last saved location.
 - Activity list: what was sent, events from the keychain (`button N`, `shake N (x.xx g)`, `found`), connection changes.
 - **Pet** (keychain running a pet scene): the character's name and head in the header, today's steps and mood (the 0–100 stats stay on the keychain); **Feed** next to Find; game results in the activity list. Tap the head to pick the character (Cat, Pavi, Nausicaa; tick on the current one, pencil renames it: each keeps its own name). The gear opens settings kept on the keychain: the same character list, vibration, shake threshold, night window. Other scenes don't report stats, so these stay hidden.
 
-- **Setup rows** under the header until each step is done: Nearby devices permission, Bluetooth on, pairing, Notification access, and on Xiaomi a link to Autostart and Battery saver.
+- **Setup rows** under the header until each step is done: Nearby devices permission, Bluetooth on, pairing, Notification access, location (for the weather, unless a place is chosen), and on Xiaomi a link to Autostart and Battery saver.
 
 Dark theme only for now. Design: [docs/mockups/app_screens.png](../../docs/mockups/app_screens.png), pet: [docs/mockups/app_pet_screens.png](../../docs/mockups/app_pet_screens.png).
 
@@ -26,12 +27,14 @@ flowchart LR
   MA <--> S["KeychainService.kt<br/>foreground service, the one GATT link"]
   B["Bridge.kt<br/>notification listener: calls, media session"] --> S
   P["Presence.kt<br/>board in range"] --> S
+  W["Weather.kt<br/>open-meteo, next 4 h"] --> S
   S <-- "Nordic UART" --> Board((keychain))
 ```
 
 - `KeychainService` holds the only Bluetooth connection to the board (the board takes one). It runs as a foreground service with a "Keychain connected" notification, reconnects in the background, sends `#time` on every connect and keeps the last `stats`/`settings` for when the app opens.
 - `Bridge` (a notification listener, needs Notification access) reads ringing calls and the playing track and hands them to the service, which replays them on connect.
 - Pairing goes through `CompanionDeviceManager`: no scanning in the app, the right address type for the board, and Android lets a paired companion app start the service from the background and wakes it when the board is in range (`Presence`).
+- `Weather` turns open-meteo's next 4 hours into the one kind the board takes (`#weather`). The service sends it on connect and hourly; the app saves the phone's location whenever it opens.
 - The service starts from the app, from the listener and from presence; Android restarts it if it's killed.
 - Flutter only draws and sends (`lib/keychain.dart` is the state; `lib/protocol.dart` parses the board's lines). No Bluetooth plugin.
 
@@ -40,6 +43,7 @@ flowchart LR
 ```bash
 flutter pub get
 flutter analyze && flutter test
+(cd android && ./gradlew :app:testDebugUnitTest)   # Weather.kt rules
 flutter build apk --release       # build/app/outputs/flutter-apk/app-release.apk
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
@@ -59,7 +63,7 @@ Keep the keystore and its password backed up: an update signed with another key 
 
 ## First start
 
-1. Allow **Nearby devices** (and notifications, for the link's notification).
+1. Allow **Nearby devices** (and notifications, for the link's notification; location, approximate is enough, for the weather).
 2. **Pair**: the keychain must be on and not connected to another phone. Pick it in the system dialog.
 3. **Allow** Notification access for calls and music.
 4. **Xiaomi/MIUI**: in the app info page that opens, turn on **Autostart** and set **Battery saver** to **No restrictions**; also lock the app in recents. Otherwise MIUI stops the link when the app is swiped away. If calls and music stop after an update, opening the app once makes Android bind the listener again.

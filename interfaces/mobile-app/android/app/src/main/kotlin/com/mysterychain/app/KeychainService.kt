@@ -30,13 +30,15 @@ import android.util.Log
 import io.flutter.plugin.common.EventChannel
 import java.util.TimeZone
 import java.util.UUID
+import kotlin.concurrent.thread
 
 // The keychain link: the app's one Bluetooth connection to the board, held by a foreground service so it lives on with
 // the app closed. The board is the one paired through CompanionDeviceManager (MainActivity "pair").
 // Started by the app, by the notification listener (Bridge.kt) and by Android when the board comes in range
 // (Presence.kt); sticky, so Android restarts it if it's killed.
-// On every connect it sends #time, and Bridge replays the ringing call and the playing song. The board's lines go to
-// the app while it's open (MainActivity's event channel); the last stats and settings are kept for when it opens.
+// On every connect it sends #time and the weather (Weather.kt; again every hour while connected), and Bridge replays
+// the ringing call and the playing song. The board's lines go to the app while it's open (MainActivity's event
+// channel); the last stats and settings are kept for when it opens.
 // Protocol: interfaces/watch/README.md#protocol.
 @SuppressLint("MissingPermission") // start() checks BLUETOOTH_CONNECT; the service doesn't run without it
 class KeychainService : Service() {
@@ -48,6 +50,8 @@ class KeychainService : Service() {
         private val txUuid = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E") // board TX: phone listens
         private val cccd = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB") // turns TX notifications on
         private val main = Handler(Looper.getMainLooper())
+        private const val WX_EVERY_MS = 3_600_000L // weather refresh while connected
+        private const val WX_FRESH_MS = 1_800_000L // a forecast this young is sent again as it is
 
         @Volatile var live: KeychainService? = null
         var sink: EventChannel.EventSink? = null // the app, while it's open; main thread only
@@ -59,8 +63,16 @@ class KeychainService : Service() {
         fun board(c: Context): String? =
             c.getSystemService(CompanionDeviceManager::class.java).associations.firstOrNull()?.uppercase()
 
+        // The app's on/off switch (settings): off, nothing starts the link until it's switched on again
+        fun on(c: Context) = c.getSharedPreferences("link", Context.MODE_PRIVATE).getBoolean("service", true)
+
+        fun switch(c: Context, on: Boolean) {
+            c.getSharedPreferences("link", Context.MODE_PRIVATE).edit().putBoolean("service", on).apply()
+            if (on) start(c) else c.stopService(Intent(c, KeychainService::class.java))
+        }
+
         fun start(c: Context) {
-            if (live != null || board(c) == null || !permitted(c)) return
+            if (live != null || !on(c) || board(c) == null || !permitted(c)) return
             try {
                 c.startForegroundService(Intent(c, KeychainService::class.java))
             } catch (e: IllegalStateException) { // a background start Android refused: the next trigger tries again
@@ -70,9 +82,14 @@ class KeychainService : Service() {
 
         // What the app shows about the link; sent to it again on every change
         fun link(c: Context): Map<String, Any> = mapOf(
+            "service" to on(c),
             "bluetooth" to (c.getSystemService(BluetoothManager::class.java).adapter?.isEnabled == true),
             "connected" to (live?.ready == true),
             "synced" to (live?.synced ?: 0L),
+            "location" to Weather.permitted(c),
+            "weather" to (live?.wx ?: ""),
+            "place" to (live?.wxPlace ?: ""), // where that forecast is for
+            "picked" to Weather.picked(c), // the place chosen in the app, "" = none
         )
     }
 
@@ -80,6 +97,10 @@ class KeychainService : Service() {
     private var rx: BluetoothGattCharacteristic? = null // non-null = connected and ready
     val ready get() = rx != null
     var synced = 0L // when the board last got the time, ms
+    @Volatile var wx: String? = null // the last forecast sent (Weather.KINDS), and when it was fetched (ms)
+    @Volatile var wxPlace: String? = null
+    private var wxAt = 0L
+    private val wxRefresh = Runnable { weather() }
     private val queue = ArrayDeque<String>() // one GATT write at a time
     private var busy = false
     val kept = mutableMapOf<String, String>() // last stats/settings line, for the app when it opens; main thread only
@@ -97,7 +118,10 @@ class KeychainService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        notes.createNotificationChannel(NotificationChannel("link", "Keychain link", NotificationManager.IMPORTANCE_LOW))
+        // MIN: no status bar icon, folded at the bottom of the shade; the app shows the link's state.
+        // A new id because a channel's importance can't change once made.
+        notes.deleteNotificationChannel("link")
+        notes.createNotificationChannel(NotificationChannel("link_quiet", "Keychain link", NotificationManager.IMPORTANCE_MIN))
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(1, note(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             else startForeground(1, note())
@@ -115,6 +139,7 @@ class KeychainService : Service() {
     override fun onStartCommand(i: Intent?, flags: Int, id: Int) = START_STICKY // Android restarts it if it's killed
 
     override fun onDestroy() {
+        main.removeCallbacks(wxRefresh)
         if (live === this) {
             live = null
             unregisterReceiver(btState)
@@ -134,17 +159,15 @@ class KeychainService : Service() {
         }
     }
 
-    private fun note(): Notification = Notification.Builder(this, "link")
+    // Fixed text, never updated: a foreground service must show one, the link's state is in the app
+    private fun note(): Notification = Notification.Builder(this, "link_quiet")
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-        .setContentTitle(if (ready) "Keychain connected" else if (bt?.isEnabled == true) "Looking for the keychain" else "Bluetooth is off")
+        .setContentTitle("MysteryChain")
         .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
         .setOngoing(true)
         .build()
 
-    private fun changed() { // the link changed: the notification and the app follow
-        notes.notify(1, note())
-        emit(link(this))
-    }
+    private fun changed() = emit(link(this)) // the link changed: the app follows
 
     private fun emit(e: Map<String, Any>) = main.post { sink?.success(e) }
 
@@ -194,6 +217,30 @@ class KeychainService : Service() {
         }
     }
 
+    // The weather for the next hours to the board (#weather), on connect, every hour while connected, and when the app
+    // opens (it may have a new location), or a place is chosen (fresh). Fetched also while disconnected, for the app.
+    // Offline or no location yet: the board keeps what it has (it expires there).
+    fun weather(fresh: Boolean = false) {
+        main.removeCallbacks(wxRefresh)
+        if (ready) main.postDelayed(wxRefresh, WX_EVERY_MS)
+        val last = wx
+        if (!fresh && last != null && System.currentTimeMillis() - wxAt < WX_FRESH_MS) {
+            if (ready) send("#weather $last")
+            return
+        }
+        thread {
+            val (place, lat, lon) = Weather.where(this) ?: run { Log.i(TAG, "weather: no location"); return@thread }
+            val k = runCatching { Weather.fetch(lat, lon) }.onFailure { Log.w(TAG, "weather: $it") }.getOrNull() ?: return@thread
+            wx = k
+            wxPlace = place
+            wxAt = System.currentTimeMillis()
+            main.post {
+                if (ready) send("#weather $k")
+                changed()
+            }
+        }
+    }
+
     private val cb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, state: Int) {
             synchronized(this@KeychainService) {
@@ -235,6 +282,7 @@ class KeychainService : Service() {
                 send("#time ${now / 1000} ${TimeZone.getDefault().getOffset(now) / 60000}")
                 synced = now
                 changed()
+                main.post { weather() }
                 main.post { Bridge.live?.replay() } // the ringing call and the playing song
             }
         }

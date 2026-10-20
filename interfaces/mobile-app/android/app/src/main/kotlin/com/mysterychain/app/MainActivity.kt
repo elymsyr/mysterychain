@@ -18,9 +18,12 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import kotlin.concurrent.thread
 
-// The app's side of the keychain link (KeychainService.kt), over two channels (lib/keychain.dart):
-//   "mysterychain/link" methods: status, send <line>, pair, openAccess, openAppInfo [autostart], enableBluetooth
+// The app's side of the keychain link (KeychainService.kt), over two channels (lib/keychain.dart). In the foreground it
+// also saves where the phone is, for the weather (Weather.kt).
+//   "mysterychain/link" methods: status, send <line>, pair, openAccess, openAppInfo [autostart], enableBluetooth, service <on>,
+//     place <name> (the weather's place while the location is off; null clears it) -> the name found, "" = none, null = not found
 //   "mysterychain/events": link changes {bluetooth, connected, synced} and the board's lines {line}
 class MainActivity : FlutterActivity() {
     private val pairCode = 1
@@ -33,6 +36,7 @@ class MainActivity : FlutterActivity() {
         val need = listOfNotNull(
             Manifest.permission.BLUETOOTH_CONNECT.takeIf { Build.VERSION.SDK_INT >= 31 },
             Manifest.permission.POST_NOTIFICATIONS.takeIf { Build.VERSION.SDK_INT >= 33 }, // the link's notification
+            Manifest.permission.ACCESS_COARSE_LOCATION, // the weather: city-sized is enough
         ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (need.isEmpty()) KeychainService.start(this) else requestPermissions(need.toTypedArray(), 0)
     }
@@ -40,6 +44,12 @@ class MainActivity : FlutterActivity() {
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
         KeychainService.start(this)
+        Weather.locate(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Weather.locate(this)
     }
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
@@ -59,6 +69,11 @@ class MainActivity : FlutterActivity() {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
                     result.success(null)
                 }
+                "service" -> { // the link on/off (settings)
+                    KeychainService.switch(this, call.arguments as Boolean)
+                    result.success(null)
+                }
+                "place" -> place(call.arguments as String?, result)
                 "enableBluetooth" -> {
                     startActivity(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
                     result.success(null)
@@ -99,6 +114,15 @@ class MainActivity : FlutterActivity() {
             // no API tells whether MIUI's Autostart is on: the hint stays until its settings were opened once
             "autostart" to (Build.MANUFACTURER.equals("Xiaomi", true) && !prefs.getBoolean("autostart", false)),
         )
+    }
+
+    private fun place(name: String?, result: MethodChannel.Result) = thread {
+        val found = if (name.isNullOrBlank()) null else runCatching { Weather.search(name) }.getOrNull()
+        if (name.isNullOrBlank() || found != null) {
+            Weather.pick(this, found)
+            KeychainService.live?.weather(fresh = true)
+        }
+        runOnUiThread { result.success(if (name.isNullOrBlank()) "" else found?.first) }
     }
 
     // Pairing: the system's companion device picker finds the board by name. Once paired, Android lets the app run the
