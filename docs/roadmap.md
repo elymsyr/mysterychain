@@ -22,7 +22,7 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | A2 | Incoming call | **Coded.** Caller name on screen, buzzes while ringing, stops when the call ends. No answer/reject. Read from the dialer's call notification, so WhatsApp calls count too. | O1, O3 |
 | A3 | Find my keychain | **Done.** "Find" in the app: patterned vibration and a blinking screen until the button is pressed (or 60 s). Works during quiet hours too. | O1 |
 | A4 | Clock sync | **Done.** The phone sends the time on connect; the board keeps time and corrects on each connection. A button tap shows it. | O1 |
-| A5 | Weather | The phone pulls the forecast for the next 4 hours from open-meteo (free, no key) and sends one of clear / cloudy / wind / rain / snow / storm (`#weather`). The scene and the pet's behavior follow it (cat: sunbathing in shades, chasing blown leaves, an umbrella in the rain, pawing at snowflakes, startled by thunder); a button tap shows its icon next to the clock. **Cat animations coded 2026-10-19** (preview only); firmware command, app side, Pavi and Nausicaa still open. | O1, O3, A4, K6 |
+| A5 | Weather | **Coded 2026-10-19, not yet tested on hardware.** The phone pulls the next 4 hours from open-meteo (free, no key) for its coarse location, on every connect and hourly, and sends the worst hour as one of clear / cloudy / wind / rain / snow / storm (`#weather`). The scene and the pet follow it (cat: shades in the sun, an umbrella in the rain, pawing at snowflakes; Pavi: a water dome over her, catching flakes; Nausicaa: a big leaf for an umbrella, Teto playing in the snow; all: blown leaves, startled by thunder); a button tap shows its icon next to the clock ([pets](../interfaces/watch/README.md#pets)). | O1, O3, A4, K6 |
 | A6 | Quick reactions | **Done.** One-tap messages in the app (heart, "on my way", "where are you"). Bubble on the board, the pet reacts. | O1 |
 | A7 | Camera shutter / music control | The button acts as a media key (BLE HID): take a photo, play/pause, next track. | O4, decision 2 |
 | A8 | Over-the-air update | Flash firmware over BLE (Bluefruit `BLEDfu`) instead of USB. Must work before the case is closed; needs testing with the XIAO bootloader. | — |
@@ -58,7 +58,7 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | --- | --- | --- | --- |
 | O1 | Message protocol | **Done:** `#command args`, anything else goes to the bubble ([protocol](../interfaces/watch/README.md#protocol)). New commands are added there. | A2–A6, S1 |
 | O2 | Persistent storage | **Coded:** settings and pet stats survive power-off (internal flash, LittleFS file `/pet`). | K1, S1 |
-| O3 | App in the background | **Coded:** one foreground service (`KeychainService.kt`) holds the only BLE link, paired through CompanionDeviceManager (background start allowed, woken when the board is in range). A notification listener (`Bridge.kt`) feeds it calls and music. Sends `#time` on every connect. A5 adds its sending here. | A2, A5, A9, A4 repeats |
+| O3 | App in the background | **Coded:** one foreground service (`KeychainService.kt`) holds the only BLE link, paired through CompanionDeviceManager (background start allowed, woken when the board is in range). A notification listener (`Bridge.kt`) feeds it calls and music. Sends `#time` and the weather (`Weather.kt`, A5) on every connect. | A2, A5, A9, A4 repeats |
 | O4 | Sharing the one button | Gestures (cat): tap = clock, double tap = feed, hold 1–3 s = game, hold 3 s = off, any press stops find. Shutter/music (A7) still open. | K2, K7, A7, A3 |
 
 ## Suggested order
@@ -87,4 +87,4 @@ flowchart TD
 | 3 | Mini game (K7) | **Decided:** one-button runner, tap / hold for two jump heights. | Done |
 | 4 | Stats hit zero (K1) | **Decided:** the pet never dies, it just looks hungry, sad or sleepy. | Done |
 | 5 | Feeding source (K2) | **Decided:** button and app. | Done |
-| 6 | Weather refresh rate (A5) | Battery and data vs. freshness | Phase 3 |
+| 6 | Weather refresh rate (A5) | **Decided:** on every connect and hourly while connected (a forecast under 30 min old is resent, not fetched again); the board drops it after 4 h. | Done |
