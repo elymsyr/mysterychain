@@ -4,7 +4,7 @@ typedef Stats = ({int steps, String mood});
 // night from == to: no night window; scene: the pet's look (one of [looks]); names: each look's own name
 typedef Settings = ({bool vib, double shake, int from, int to, String scene, Map<String, String> names});
 
-const looks = {'cat': 'Cat', 'pavi': 'Pavi', 'nausicaa': 'Nausicaa'}; // board order (firmware pets.h) and labels
+const looks = {'cat': 'Cat', 'pavi': 'Pavi', 'nausicaa': 'Nausicaa', 'gandalf': 'Gandalf', 'sauron': 'Sauron'}; // board order (firmware pets.h) and labels
 
 String nameOf(Settings s) => s.names[s.scene] ?? looks[s.scene] ?? s.scene;
 typedef Game = ({int score, int best});

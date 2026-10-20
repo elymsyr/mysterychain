@@ -6,7 +6,7 @@ const text1 = Color(0xFFEBE6DD), text2 = Color(0xFFA39D92), text3 = Color(0xFF6C
 const accentInk = Color(0xFF1D1406), ok = Color(0xFF8BB174), heart = Color(0xFFF08CA0);
 final corner = BorderRadius.circular(6);
 
-const accents = {'cat': Color(0xFFE3A043), 'pavi': Color(0xFFB993E8), 'nausicaa': Color(0xFF7FB8E6)};
+const accents = {'cat': Color(0xFFE3A043), 'pavi': Color(0xFFB993E8), 'nausicaa': Color(0xFF7FB8E6), 'gandalf': Color(0xFFB8B8C4), 'sauron': Color(0xFFE0702C)};
 var accent = accents['cat']!; // set by themeFor before each rebuild
 
 ThemeData themeFor(String? scene) {

@@ -35,7 +35,23 @@ class PetHead extends CustomPainter {
     'S': Color(0xFFF6C8A6), 'E': Color(0xFF40486E), 'W': Color(0xFFFAF0DC), 'M': Color(0xFFBE5A5A),
     'R': Color(0xFFDC2832),
   };
-  static const art = {'cat': (cat, catColors), 'pavi': (pavi, paviColors), 'nausicaa': (nausicaa, nausicaaColors)};
+  static const gandalf = [
+    '......KK......', '.....KHHK.....', '....KHHHHK....', '...KHHHHHHK...', 'KKKHHHHHHHHKKK',
+    'KHHHHHHHHHHHHK', '.KKKKKKKKKKKK.', '..KWSSSSSSWK..', '..KWEKSSKEWK..', '..KWSSSSSSWK..',
+    '..KWWWWWWWWK..', '..KWWWWWWWWK..', '...KWWWWWWK...', '....KWWWWK....', '.....KKKK.....',
+  ];
+  static const gandalfColors = {
+    'K': Color(0xFF1E1A1E), 'H': Color(0xFF8C8C96), 'W': Color(0xFFDCDCE0), 'S': Color(0xFFF0C8A0),
+    'E': Color(0xFF3C4A6E),
+  };
+  static const sauron = [
+    '.K....KK....K.', '.KK..KAAK..KK.', '.KAKKAAAAKKAK.', '..KAAAAAAAAK..', '..KAAAAAAAAK..',
+    '..KAKKKKKKAK..', '..KAKRRRRKAK..', '..KAKKKKKKAK..', '..KAAAKKAAAK..', '..KAAAKKAAAK..',
+    '...KAAKKAAK...', '....KAAAAK....', '.....KKKK.....',
+  ];
+  static const sauronColors = {'K': Color(0xFF0E0C10), 'A': Color(0xFF4A4650), 'R': Color(0xFFFF7A1E)};
+  static const art = {'cat': (cat, catColors), 'pavi': (pavi, paviColors), 'nausicaa': (nausicaa, nausicaaColors),
+    'gandalf': (gandalf, gandalfColors), 'sauron': (sauron, sauronColors)};
 
   @override
   void paint(Canvas canvas, Size size) {
