@@ -435,8 +435,8 @@ def sheet_front_housing(doc, idx, n):
     sh.line(B.p(0, 0, -1.5), B.p(0, 0, H + 1.5), "CENTER")
     sh.dim(B.p(-RO, 0, H), B.p(RO, 0, H), B.p(0, 0, H + 3.5), text="%%c<>")
     sh.dim(B.p(-RI, 0, 0), B.p(RI, 0, 0), B.p(0, 0, -3.5), text="%%c<>")
-    r36 = pc.LCD_D / 2 + 0.2
-    sh.dim(B.p(-r36, 0, z_step), B.p(r36, 0, z_step), B.p(0, 0, z_step - 2.5), text="%%c36")
+    r36 = math.sqrt((pc.LCD_D / 2 + 0.2 + pc.LCD_TOP_GROW) ** 2 - pc.LCD_DY ** 2)   # y = 0 cuts the tab half
+    sh.dim(B.p(-r36, 0, z_step), B.p(r36, 0, z_step), B.p(0, 0, z_step - 2.5), text="%%c37")
     sh.dim(B.p(-RO, 0, H), B.p(-r36, 0, z_bez), B.p(-RO - 3.5, 0, 0), vertical=True)
     sh.dim(B.p(-RO, 0, H), B.p(-RI, 0, z_step), B.p(-RO - 7.5, 0, 0), vertical=True)
     dc, dr = (RI + 0.6, 0, 5.4), 5.6
@@ -473,7 +473,9 @@ def sheet_front_housing(doc, idx, n):
         f"5. Hook groove R{pc.GROOVE_R:.1f} x z {g0:.1f}-{g1:.1f} (detail C); lug side grooves 0.7 deep, "
         f"y {gy0:.1f}-{gy1:.1f}. Pry notch 5 x 0.8 at 230 deg.\\P"
         "6. USB plug anchor slot 3.4 x 1.4 + recess (+X); button hole 3.6 x 2.0, %%c6.4 dimple (-X).\\P"
-        f"7. LCD neck / FPC pocket: neck outline + {pc.NECK_GROW:.1f} all round. Motor ring %%c10.5 x 1.0 "
+        f"7. LCD recess %%c36 (USB half), R{pc.LCD_D / 2 + 0.2 + pc.LCD_TOP_GROW:.1f} on the tab half, "
+        f"both from the window centre; inner corners to the neck pocket R{pc.LCD_CORNER_R:.1f}.\\P"
+        f"8. LCD neck / FPC pocket: neck outline + {pc.NECK_GROW:.1f} all round. Motor ring %%c10.5 x 1.0 "
         "on the lug skin."), notes_at=(107, 54), notes_w=95)
     return sh
 

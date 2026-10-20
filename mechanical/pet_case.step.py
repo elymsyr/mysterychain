@@ -28,8 +28,8 @@ import math
 from pathlib import Path
 
 from build123d import (
-    Align, Box, Compound, Cone, Cylinder, Kind, Location, Plane, Polygon, Pos, RectangleRounded, Rot, extrude,
-    offset,
+    Align, Box, Circle, Compound, Cone, Cylinder, Kind, Location, Plane, Polygon, Pos, Rectangle, RectangleRounded,
+    Rot, extrude, offset,
 )
 from cadgen import srgb
 from cadgen.assembly import AssemblyHelper
@@ -55,6 +55,8 @@ WIN_D = 34.6             # window: active area Ø32.05 + black ring, lip covers 
 TAB_REAR = 2.5           # behind the tab pads: header removed, solder/pin stubs <=1 + 30AWG wires bent flat
 SOLDER_HALF_X, SOLDER_Y, SOLDER_H = 8.52, (24.36, 26.14), 1.164   # front-side solder joints
 NECK_GROW = 1.0          # extra on every side of the LCD neck/FPC pocket (PLA test print: 0.35 was too tight)
+LCD_TOP_GROW = 0.5       # extra LCD recess radius on the tab half (PLA test print: header in the solder pocket pulls the glass toward the tab, 0.2 too tight)
+LCD_CORNER_R = 1.0       # rounds the inner corners where the LCD recess meets the neck pocket / the tab-half step
 
 # XIAO nRF52840 Sense (measured from the official Seeed STEP)
 XIAO_STEP = HERE / "parts" / "xiao_nrf52840_sense.step"
@@ -164,6 +166,17 @@ def zcyl(x, y, r, z0, z1):
 
 
 # ---------------------------------------------------------------- front housing
+def lcd_pocket_profile():
+    """LCD recess (wider on the tab half) + LCD neck/FPC bend pocket, inner corners rounded."""
+    r = LCD_D / 2 + 0.2
+    prof = (Pos(0, LCD_DY) * Circle(r)
+            + (Pos(0, LCD_DY) * Circle(r + LCD_TOP_GROW) & Pos(0, LCD_DY + RO / 2) * Rectangle(2 * RO, RO))
+            + offset(Polygon((-8.85, 14.5), (8.85, 14.5), (8.85, 15.3), (6.95, 19.97), (6.95, 21.2),
+                             (-6.95, 21.2), (-6.95, 19.97), (-8.85, 15.3), align=None),
+                     NECK_GROW, kind=Kind.INTERSECTION))
+    return offset(offset(prof, LCD_CORNER_R), -LCD_CORNER_R)   # closing: fills only the inward corners
+
+
 def make_front_housing():
     body = Cylinder(RO, H, align=MIN).fuse(
         Pos(0, LUG_TOP / 2, 0) * extrude(RectangleRounded(2 * LUG_HALF, LUG_TOP, 3.0), H)).clean()
@@ -172,12 +185,7 @@ def make_front_housing():
     cuts = [
         zcyl(0, LCD_DY, WIN_D / 2, z(BEZEL_T) - 0.1, H + 1),                  # window
         Pos(0, LCD_DY, H - 0.2) * Cone(WIN_D / 2, WIN_D / 2 + 0.3, 0.3, align=MIN),  # window chamfer
-        zcyl(0, LCD_DY, LCD_D / 2 + 0.2, z(D_PCB_FRONT), z(BEZEL_T)),         # LCD recess
-        # LCD neck + FPC bend (on the tab, PCB front side)
-        extrude(offset(Polygon((-8.85, 14.5), (8.85, 14.5), (8.85, 15.3), (6.95, 19.97), (6.95, 21.2),
-                               (-6.95, 21.2), (-6.95, 19.97), (-8.85, 15.3), align=None),
-                       NECK_GROW, kind=Kind.INTERSECTION),
-                z(BEZEL_T) - z(D_PCB_FRONT)).moved(Location((0, 0, z(D_PCB_FRONT)))),
+        extrude(lcd_pocket_profile(), z(BEZEL_T) - z(D_PCB_FRONT)).moved(Location((0, 0, z(D_PCB_FRONT)))),
         # header front-side solder joints
         zbox(-SOLDER_HALF_X - 0.4, SOLDER_HALF_X + 0.4, SOLDER_Y[0] - 0.4, SOLDER_Y[1] + 0.4,
              z(D_PCB_FRONT) - 0.1, z(D_PCB_FRONT) + SOLDER_H + 0.3),
