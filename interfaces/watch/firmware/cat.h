@@ -54,12 +54,11 @@ void tint(int minuteOfDay) {
     for (int c = 0; c < 3; c++) PAL[TINTED[k]][c] = lroundf(LOOK[a][k][c] * (1 - f) + LOOK[b][k][c] * f);
   nightW = (a == pet::NIGHT ? 1 - f : 0) + (b == pet::NIGHT ? f : 0);
   // Weather: the sky and far layers grey over (toward their own brightness), a storm or rain also darkens the land.
-  float ov = pet::OVERCAST[pet::wx], dark = pet::wx == pet::STORM ? 0.4f : pet::wx == pet::RAIN ? 0.2f : 0;
-  for (uint8_t k : {SKY0, SKY1, SKY2, SKY3, CLOUD, FAR, GRASS, GRASS2, HILL, TREE, SHADOW}) {
-    uint8_t *c = PAL[k];
-    float l = 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2], m = k <= SKY3 || k == CLOUD || k == FAR ? ov : ov * 0.3f;
-    for (int i = 0; i < 3; i++) c[i] = lroundf((c[i] * (1 - m) + l * m) * (1 - (k == CLOUD ? dark * 0.6f : dark)));
-  }
+  static const uint8_t AIR[] = {SKY0, SKY1, SKY2, SKY3, FAR}, LAND[] = {GRASS, GRASS2, HILL, TREE, SHADOW};
+  float ov = pet::OVERCAST[pet::wx], dark = pet::gloom();
+  for (uint8_t k : AIR) pet::dim(PAL[k], ov, dark);
+  pet::dim(PAL[CLOUD], ov, dark * 0.6f);
+  for (uint8_t k : LAND) pet::dim(PAL[k], ov * 0.3f, dark);
 }
 bool sunUp() { return clockMin >= SUNRISE && clockMin < SUNSET; }
 
@@ -96,7 +95,6 @@ const char *const FLY[2][5] = {{"K.....K", ".K...K.", "KPK.KPK", "KPPKPPK", ".KK
                                {".K...K.", "..K.K..", ".KPKPK.", ".KPKPK.", "..K.K.."}};  // wings up
 const char *const RAT[2][4] = {{".....KP.", "K.KKKYYK", ".KYYYYKY", "..K..K.."},  // facing right, two run frames
                                  {".....KP.", "K.KKKYYK", ".KYYYYKY", ".K..K..."}};
-const char *const LEAF[2][3] = {{"..CCK", ".CCC.", "CCC.."}, {"CCC..", ".CCC.", "..CCK"}};  // tumbling in the wind
 
 uint8_t fb[N * N], bg[N * N];
 // The runner game is seen from farther away: a GN x GN view (~1.67x on screen instead of 3x) over the same world coordinates,
@@ -238,17 +236,20 @@ void drawSky() {  // over the background already in the view (memcpy of bg, or t
   clouds();
 }
 
-// ---- Weather (pet::wx): rain and snow fall, a storm flashes, wind blows leaves; rain plants an umbrella the cat sits under ----
+// ---- Weather (pet::wx, weather.h): rain plants an umbrella the cat sits under ----
 const int UMB_X = 40, UMB_CX = UMB_X + 3, UMB_R = 14, UMB_Y = GROUND - 22;  // where the cat sits, canopy center, radius, rim row
-bool wet() { return pet::wx == pet::RAIN || pet::wx == pet::STORM; }
-bool snowing() { return pet::wx == pet::SNOW; }
+const int WIND_DIR = 1;
+float canopy(float x);
+float landRow() { return GROUND - 1 + (N - 4 - GROUND) * rnd() * rnd(); }  // mostly toward the back
+float drift();
+bool airy(uint8_t c) { return c <= SKY3 || c == CLOUD || c == STAR; }
+void thunder();
+#include "weather.h"
 bool umbrella() { return wet() && !rove; }
 float canopy(float x) {  // the umbrella's top at x (rain stops here), or a big number off it
   float u = (x - UMB_CX) / UMB_R;
   return umbrella() && fabsf(u) < 1 ? UMB_Y - 7 * sqrtf(1 - u * u) : 1e9f;
 }
-float gust = 0;  // wind: 0..1, gusts come and go
-int dropCount() { return pet::wx == pet::STORM ? 48 : pet::wx == pet::RAIN ? 26 : snowing() ? 34 : 0; }
 
 // ---- Cat, yarn ball, bowl and visitors ----
 enum { IDLE, RUN, CROUCH, JUMP, LAND, BAT, SLEEP, EAT, REFUSE, PURR, YAWN, BORED, HUNGRY, ANGRY, KO, GROOM, SPIN, DANCE,
@@ -679,7 +680,7 @@ void drawVisitor() {
   if (!vis.on) return;
   int x = lroundf(vis.x), facing = vis.flee ? (vis.vx > 0 ? 1 : -1) : (cat.x > vis.x ? 1 : -1);
   if (vis.kind == BUTTERFLY) art(FLY[sinf(T * 20) > 0], 5, x - 3, lroundf(vis.y + 2 * sinf(T * 3)) - 2);
-  else if (vis.kind == BLOWN) art(LEAF[sinf(T * 9) > 0], 3, x - 2, lroundf(vis.y + 3 * sinf(T * 4)) - 1);
+  else if (vis.kind == BLOWN) art(LEAF_ART[sinf(T * 9) > 0], 3, x - 2, lroundf(vis.y + 3 * sinf(T * 4)) - 1);
   else art(RAT[vis.x != vis.home && fmodf(T, 0.2f) < 0.1f], 4, x - 4, GROUND - 4, facing);
 }
 
@@ -737,59 +738,11 @@ void roveStep(float dt) {
   if (!tunes && (tripLeft -= dt) <= 0) go(IDLE, 1), rove = false;
 }
 
-// ---- Weather drawing and motion (after the cat and the trip, which it reads) ----
-const int ND = 48;
-struct {
-  float x, y, v, land;
-} drops[ND];
-struct {
-  float x, y, t;
-} splash[12];
-struct {
-  float x, y, ph;
-} leaves[5];
-int nsplash = 0;
-float snowCover = 0, boltT = 3, flashT = -1, boltX = 40;  // ground white 0..1; s to the next bolt, since the last
-
-void dropNew(int i, bool top) {
-  auto &d = drops[i];
-  d.x = -12 + (N + 24) * rnd(), d.y = top ? -2 - 8 * rnd() : -2 + GROUND * rnd();
-  d.v = snowing() ? 9 + 7 * rnd() : 105 + 40 * rnd();
-  d.land = GROUND - 1 + (N - 4 - GROUND) * rnd() * rnd();  // mostly toward the back
-}
-
-void weatherStep(float dt) {
-  float slant = pet::wx == pet::STORM ? 30 : 10, run = rove ? -TRIP_V * 0.6f : 0;  // px/s sideways (and the trip's wind)
-  for (int i = 0, n = dropCount(); i < n; i++) {
-    auto &d = drops[i];
-    if (d.v == 0 || (snowing() != (d.v < 50))) dropNew(i, false);  // first use, or rain <-> snow
-    d.y += d.v * dt, d.x += (snowing() ? 4 * sinf(T * 1.3f + i) : slant) * dt + run * dt;
-    float stop = fminf(d.land, canopy(d.x));
-    if (d.y < stop) continue;
-    if (!snowing()) splash[nsplash] = {d.x, stop, 0}, nsplash = (nsplash + 1) % 12;
-    dropNew(i, true);
-  }
-  for (auto &s : splash) s.t += dt;
-  snowCover = clampf(snowCover + (snowing() ? dt / 40 : -dt / 90), 0, 1);  // settles in 40 s, melts in 90 s
-
-  if (pet::wx == pet::STORM && (boltT -= dt) <= 0) {  // a bolt and one short flash every 4-10 s (photosensitivity: never a strobe)
-    boltT = 4 + 6 * rnd(), flashT = 0, boltX = 18 + 44 * rnd();
-    if (cat.st == SLEEP) cat.peek = 1.5f;
-    else if (grounded()) cat.scare = 1.1f;
-  }
-  if (flashT >= 0 && (flashT += dt) > 0.4f) flashT = -1;
-
-  gust = pet::wx == pet::WIND ? fmaxf(0, sinf(T * 0.8f)) : 0;
-  for (int i = 0; i < 5; i++) {
-    auto &l = leaves[i];
-    if (pet::wx != pet::WIND) {
-      l.x = -20 - 40 * rnd(), l.y = 28 + (GROUND - 30) * rnd();  // under the bubble band
-      continue;
-    }
-    l.x += (30 + 70 * gust + 10 * i) * dt, l.ph += (4 + i) * dt;
-    l.y += 9 * sinf(l.ph * 0.7f) * dt;
-    if (l.x > N + 6) l.x = -6 - 30 * rnd(), l.y = 28 + (GROUND - 30) * rnd();
-  }
+// ---- Weather: the cat's side of it (weather.h) ----
+float drift() { return rove ? -TRIP_V * 0.6f : 0; }  // on a trip the rain blows back
+void thunder() {  // startled; asleep it only peeks
+  if (cat.st == SLEEP) cat.peek = 1.5f;
+  else if (grounded()) cat.scare = 1.1f;
 }
 
 void drawSnowCover() {  // white over the grass, densest at the top rows; scrolls along on a trip
@@ -800,39 +753,6 @@ void drawSnowCover() {  // white over the grass, densest at the top rows; scroll
       uint8_t &c = view[(y + vy0) * VN + x + vx0];
       if ((c == GRASS || c == GRASS2) && h01((x + off) * 977 + y * 131) < snowCover * (y < GROUND + 3 ? 1.2f : 0.97f)) c = FLAKE;
     }
-}
-
-void drawFlash() {  // lightning: the sky lights up for 0.08 s, the bolt stays a little longer
-  if (flashT < 0) return;
-  if (flashT < 0.08f)
-    for (uint8_t &c : fb)
-      if (c <= SKY3 || c == CLOUD || c == STAR) c = FLASH;
-  if (flashT > 0.3f) return;
-  float x = boltX;
-  for (int k = 0; k < 7; k++) {
-    float nx = x + 5 * (h01(int(boltX) * 13 + k) - 0.5f) * 2;
-    for (int y = k * 5; y < k * 5 + 5; y++) {
-      int bx = lroundf(x + (nx - x) * (y - k * 5) / 5);
-      if (isSky(bx, y) || fb[y * N + bx] == CLOUD) px(bx, y, STAR);
-    }
-    x = nx;
-  }
-}
-
-void drawDrops() {  // behind the cat: rain streaks and splashes, or snowflakes
-  for (int i = 0, n = dropCount(); i < n; i++) {
-    const auto &d = drops[i];
-    int x = lroundf(d.x), y = lroundf(d.y);
-    if (snowing()) {
-      px(x, y, FLAKE);
-      if (i % 4 == 0) px(x - 1, y, FLAKE), px(x + 1, y, FLAKE), px(x, y - 1, FLAKE), px(x, y + 1, FLAKE);
-      continue;
-    }
-    float sl = pet::wx == pet::STORM ? 0.25f : 0.1f;
-    for (int k = 0; k < (pet::wx == pet::STORM ? 4 : 3); k++) px(lroundf(d.x - sl * k), y - k, DROP);
-  }
-  for (const auto &s : splash)
-    if (s.t < 0.12f) px(s.x - 1, s.y - 1, DROP), px(s.x + 1, s.y - 1, DROP);
 }
 
 void drawUmbrellaPole() {  // planted at a slant behind the cat
@@ -848,11 +768,6 @@ void drawCanopy() {  // blue and dark blue panels, outlined, a little scallop at
     else px(x, UMB_Y, INK);
   }
   px(UMB_CX, UMB_Y - 8, INK), px(UMB_CX, UMB_Y - 9, INK);  // the tip
-}
-
-void drawLeaves() {  // in front of everything
-  for (int i = 0; i < 5; i++)
-    if (leaves[i].x > -6) art(LEAF[sinf(leaves[i].ph) > 0], 3, lroundf(leaves[i].x), lroundf(leaves[i].y), 1);
 }
 
 void drawRove() {

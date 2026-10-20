@@ -34,6 +34,13 @@ With `cat.h` or `pavi.h` the character lives on its own: stats, moods, day and n
 - **Petting:** double tap on the case (IMU tap engine): hearts and a soft purr buzz. A shake waits 300 ms so a double tap isn't taken as a shake.
 - **Steps:** the IMU's hardware pedometer; today's count resets at local midnight. Off = no counting.
 - **Day and night:** sky, ground, clouds, sun and moon follow the clock (dawn 06–08, day, sunset 18–20, night; keyframes in `pet.h`, colors per scene in its `LOOK` table). Pavi: the aurora and stars fade in at night, her rooftops fade into the haze by day and their windows light up in the evening. No clock yet: night look.
+- **Weather** (`#weather`, the phone's forecast for the next 4 hours; drawn by [`weather.h`](firmware/weather.h), shared by the three): clear, cloudy, wind, rain, snow or storm. The sky greys over and fills with clouds (wind: they race), the stars, aurora, sun and moon go behind them; rain and snow fall, snow settles on the ground (roofs, ridges), a storm sends a bolt with one 0.08 s flash every 4–10 s (never a strobe). The pets follow it, cat / Pavi / Nausicaa:
+  - rain: sits under a planted umbrella / holds a water dome over herself, the fairy inside / sits under a big leaf;
+  - snow: paws at the flakes and leaps / catches one and it sparkles / catches them, or Teto leaps off to play in the snow;
+  - clear and the sun up: sunbathes in shades / sits in the sun, eyes shut (both);
+  - wind: a blown leaf comes by instead of a butterfly, tail / ponytail / hair stream out, squinting in a gust; Pavi's fairy fights the gusts, Nausicaa's windmills spin fast and she reads the wind more often;
+  - thunder startles them (puffed up / hands to the head, Teto hides in her tunic); asleep, one eye opens.
+  The clock tap shows the weather's icon left of the time. No new forecast for `WX_MS` (4 h): unknown again (clear look, no icon). The games have no weather.
 - **Night window** (default 23–07): the pet sleeps and the motor is quiet, except for find.
 - **Saved** in the internal flash (`/pet`, LittleFS) every 10 min and on feed, settings, a new best and power-off. Time spent off counts as sleep (up to 48 h) once the phone sends the time.
 
@@ -67,6 +74,7 @@ Tunables at the top of `firmware.ino`:
 | `TAP_GUARD_MS` | 500 | Pets: case taps this soon after a button edge are ignored |
 | `TAP_THS` | 3 | Pets: IMU tap threshold, × 0.5 g. Check through the printed case |
 | `SAVE_S` | 600 | Pets: stats saved this often |
+| `WX_MS` | 4 h | Pets: a forecast (`#weather`) is dropped this long after it came |
 
 Stat rates and gains are at the top of [`pet.h`](firmware/pet.h), game physics at the top of [`game.h`](firmware/game.h).
 
@@ -82,6 +90,7 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `#heart` | Three pink hearts in the bubble, buzz twice, cheer |
 | `#call <caller>` / `#call 0` | A call rings: caller in the bubble, ring buzz (0.4 s every second) / answered or gone: bubble and buzz stop. Stops by itself after `CALL_MS` (45 s). Sent by the app's background link. |
 | `#music <title - artist>` | The phone's track changed: pets show the [music screen](#pets), other scenes ♫ and the text in the bubble. No buzz. Sent by the app's background link. |
+| `#weather clear\|cloudy\|wind\|rain\|snow\|storm` | Pets: the weather for the next hours ([pets](#pets)); anything else (`#weather 0`) = unknown. Not saved; dropped after `WX_MS`. The app sends it on connect and every hour. |
 | `#feed` | Pets: feed (answers `fed` or `full`) |
 | `#stats` | Pets: send `stats` now |
 | `#set vib 0\|1` | Pets: motor off / on (find always buzzes) |
@@ -116,7 +125,7 @@ Each scene header (`cat.h`, `pavi.h`, `nausicaa.h`) is plain C++ with no Arduino
 | `shake()` | React to a shake |
 | `cheer()` | React to a message or button press |
 
-To add a scene, put its header in `firmware/` with the same interface and the `namespace scene = …;` line, and include it from `firmware.ino`. The sketch adds one palette entry after the scene's own (`HEART`, index `NCOL`) for the pink hearts.
+To add a scene, put its header in `firmware/` with the same interface and the `namespace scene = …;` line, and include it from `firmware.ino`. The sketch adds four palette entries after the scene's own: `NCOL` pink for the hearts, `NCOL + 1..3` the weather icon's grey, blue and yellow.
 
 A scene that ends with `#define SCENE_PET` (`cat.h`, `pavi.h`) turns on the pet code in the sketch and also exposes: `PAL` writable plus `tint(minuteOfDay)`, `setMood()`, `eat()`, `refuse()`, `purr()`, `yawn()`, `music(on)` (called every frame), and the game (`game`, `gameStart()`, `gameInput(held)`, `gameTilt(g)`, `gameStop()`, `gameLabel()`). Stats and the time-of-day keyframes live in [`pet.h`](firmware/pet.h); the runner in [`game.h`](firmware/game.h), included by the cat (Pavi and Nausicaa have their own tilt games in their headers) (its header lists what a scene defines for it: the `hero`, its head span, the bird height). PC check for both, with either runner:
 
@@ -130,11 +139,11 @@ g++ -std=c++17 -DPETS -I firmware test/pet_test.cpp -o /tmp/pet_test && /tmp/pet
 
 ### Preview
 
-[`test/preview.cpp`](test/preview.cpp) runs a pet scene on the PC and dumps a clip of every animation (times of day, music screen, moods, visitors, idle tricks, the game on autopilot); [`test/preview.py`](test/preview.py) turns them into round-masked GIFs. Look at them before flashing:
+[`test/preview.cpp`](test/preview.cpp) runs a pet scene on the PC and dumps a clip of every animation (times of day, music screen, moods, visitors, idle tricks, every weather `wx_*` and the clock icons, the game on autopilot); [`test/preview.py`](test/preview.py) turns them into round-masked GIFs. Look at them before flashing:
 
 ```bash
 cd test
-g++ -std=c++17 -O2 -I../firmware -I ~/Arduino/libraries/Adafruit_GFX_Library preview.cpp -o /tmp/preview_cat   # -DPAVI for Pavi
+g++ -std=c++17 -O2 -I../firmware -I ~/Arduino/libraries/Adafruit_GFX_Library preview.cpp -o /tmp/preview_cat   # -DPAVI, -DNAUSICAA
 mkdir -p /tmp/clips && /tmp/preview_cat /tmp/clips && python3 preview.py /tmp/clips /tmp/gifs   # --sheet: contact sheets too
 ```
 

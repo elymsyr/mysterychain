@@ -3,7 +3,8 @@
 // BLE (Nordic UART, name "MysteryChain"): text from the phone shows in a speech bubble, the motor buzzes twice,
 // the character cheers. Messages starting with '#' are commands, see receive(). Button and shake events go to the
 // phone as "button N" / "shake N".
-// Button tap: the character cheers; once the phone has sent the time, the clock shows in the bubble.
+// Button tap: the character cheers; once the phone has sent the time, the clock shows in the bubble (pets: with the
+// weather icon once the phone has sent the forecast).
 // Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
 // pets.h holds the three pets, the cat, Pavi and Nausicaa; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, hold 1-3 s = runner game,
 // double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
@@ -37,6 +38,7 @@ const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: r
 const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for a second one (double tap = feed)
 const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double tap on the case inside it is petting
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
+const uint32_t WX_MS = 4 * 3600000;  // a forecast (#weather) covers this long: no new one by then = weather unknown again
 const uint8_t TAP_THS = 2;           // IMU tap threshold, x 0.5 g at the 16 g range: 3 missed half the taps through the printed case
 const uint32_t SAVE_S = 600;         // stats saved to flash this often (and on feed, settings, new best, power off)
 const int TILT_AXIS = 1;             // Pavi's and Nausicaa's games: accel axis along the screen's left-right (0 x, 1 y, 2 z; check on the device)
@@ -46,13 +48,14 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 LSM6DS3 imu(I2C_MODE, 0x6A);
 BLEUart bleuart;
 bool imuOk;
-// One palette entry past the scene's own (index scene::NCOL): pink, for hearts on any scene.
+// Palette entries past the scene's own: scene::NCOL pink, for hearts on any scene; NCOL + 1..3 the weather icon's
+// cloud grey, rain blue and sun yellow (pet::WX_ICON letters G, B, Y).
 uint16_t pal[256], palInv[256], strip[240 * SC * BAND];  // palInv: find blinks with it
 
-void buildPal() {  // the cat scene's palette follows the time of day: rebuilt once a minute
-  static const uint8_t HEART_RGB[3] = {255, 120, 150};
-  for (int i = 0; i <= scene::NCOL; i++) {
-    const uint8_t *rgb = i < scene::NCOL ? scene::PAL[i] : HEART_RGB;
+void buildPal() {  // the pet scenes' palettes follow the time of day and the weather: rebuilt once a minute and on a change
+  static const uint8_t EXTRA[4][3] = {{255, 120, 150}, {150, 158, 172}, {60, 120, 230}, {250, 180, 30}};
+  for (int i = 0; i < scene::NCOL + 4; i++) {
+    const uint8_t *rgb = i < scene::NCOL ? scene::PAL[i] : EXTRA[i - scene::NCOL];
     uint16_t c = tft.color565(rgb[0], rgb[1], rgb[2]), ci = tft.color565(255 - rgb[0], 255 - rgb[1], 255 - rgb[2]);
     pal[i] = c << 8 | c >> 8;  // display wants big endian: swap once here, no swap while sending
     palInv[i] = ci << 8 | ci >> 8;
@@ -71,10 +74,13 @@ struct FbGfx : Adafruit_GFX {
 // Clock: the phone sends its local time on every connect (#time). Lost on power-off until the next connect.
 uint32_t syncLocal, syncMs;  // local time in s at millis() == syncMs; syncLocal 0 = no time yet
 uint32_t localNow() { return syncLocal + (millis() - syncMs) / 1000; }
+uint32_t wxT;  // pets: when the last #weather came (millis)
+bool wxKnown;  // ... and whether it named one
 int hourNow() { return syncLocal ? localNow() / 3600 % 24 : -1; }
 
 char msg[64];
 uint8_t msgColor;
+int8_t msgIcon = -1;  // the clock's weather icon (pet::Wx), -1 = none
 bool msgMusic;  // msg is a track title: pet scenes show it on the music screen
 uint32_t msgT0, msgDur, buzzT0, buzzN, buzzOn = 120, buzzPer = 240;  // vibration: buzzN pulses, buzzOn ms on every buzzPer ms
 
@@ -88,7 +94,7 @@ void buzz(uint32_t pulses, uint32_t on = 120, uint32_t per = 240) {  // find has
 void show(uint32_t pulses, uint8_t color = scene::INK, bool react = true) {  // show msg in the bubble, buzz, the character cheers
   msgT0 = millis();
   msgDur = constrain(2 * (strlen(msg) * 6 + 20) * 40, 4000, 15000);  // scrolling text loops at least twice
-  msgColor = color, msgMusic = false;
+  msgColor = color, msgMusic = false, msgIcon = -1;
   buzz(pulses);
   if (react) scene::cheer();
   Serial.printf("screen: %s\n", msg);
@@ -102,7 +108,10 @@ void tell(const char *s) {  // to the serial monitor and, if connected, the phon
 void showClock() {
   uint32_t t = localNow();
   snprintf(msg, sizeof msg, "%02lu:%02lu", t / 3600 % 24, t / 60 % 60);
-  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK, msgMusic = false;
+  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK, msgMusic = false, msgIcon = -1;
+#ifdef SCENE_PET
+  if (wxKnown) msgIcon = pet::wx;
+#endif
 }
 
 // Find: buzz-buzz-pause and a blinking screen until the button is pressed, #find 0 arrives or FIND_MS passes.
@@ -245,9 +254,18 @@ void feed() {  // double tap on the button or #feed
   sendStats(true);
 }
 
-void retint() {  // sky colors for the current minute (night look without a clock)
+void retint() {  // sky colors for the current minute (night look without a clock) and the weather
   scene::tint(syncLocal ? localNow() / 60 % 1440 : -1);
   buildPal();
+}
+
+// Weather (A5): "#weather clear|cloudy|wind|rain|snow|storm", the phone's forecast for the next hours; anything else
+// (#weather 0) = unknown, which looks clear but shows no icon. Not saved: after a power-off the phone sends it again.
+void weather(const char *kind) {
+  int k = 0, n = sizeof pet::WX / sizeof *pet::WX;
+  while (k < n && strcmp(kind, pet::WX[k])) k++;
+  wxKnown = k < n, wxT = millis(), pet::wx = wxKnown ? k : pet::CLEAR;
+  retint();
 }
 
 void startGame() {  // hold-and-release, or a press after a game over
@@ -301,6 +319,7 @@ void petTick(uint32_t now) {  // once a second: stats, mood; steps, sky, save on
   scene::setMood(m);
   if (secs % 2 == 0) readSteps();
   if (secs % 60 == 0) retint(), sendStats(false);
+  if (wxKnown && now - wxT > WX_MS) weather("0");  // the forecast ran out
   if (secs % SAVE_S == 0) petSave();
 }
 #endif
@@ -319,7 +338,7 @@ float shakeLimit() {
 //   #heart                            hearts in the bubble
 //   #call <caller>  /  #call 0        a call rings: name in the bubble + ring buzz / answered or gone
 //   #music <title - artist>           the phone's track changed: quiet; pet scenes: music screen, else the bubble
-//   pet scene: #feed, #stats, #set vib|shake|night|name <look>|scene ...  (interfaces/watch/README.md#protocol)
+//   pet scene: #feed, #stats, #weather <kind>, #set vib|shake|night|name <look>|scene ...  (interfaces/watch/README.md#protocol)
 // Plain text, and anything else starting with '#', shows in the bubble.
 void receive(uint8_t *rx, int n) {
   rx[n] = 0;
@@ -369,6 +388,8 @@ void receive(uint8_t *rx, int n) {
     feed();
   } else if (!strcmp(s, "#stats")) {
     sendStats(true);
+  } else if (!strncmp(s, "#weather ", 9)) {
+    weather(s + 9);
   } else if (!strncmp(s, "#set ", 5) && setting(s + 5)) {
     petSave();
     sendSettings();
@@ -382,7 +403,7 @@ void receive(uint8_t *rx, int n) {
   }
 }
 
-void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now, int Y = 11) {
+void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now, int Y = 11, int icon = -1) {
   const int L = 12, R = 68, H = 13;  // Y = 11 fits the top band of the round screen
   gfx.fillRoundRect(L, Y, R - L, H, 4, scene::INK);
   gfx.fillRoundRect(L + 1, Y + 1, R - L - 2, H - 2, 3, scene::CREAM);
@@ -390,6 +411,17 @@ void bubble(const char *s, uint8_t color, uint32_t t0, uint32_t now, int Y = 11)
   gfx.setTextColor(color);
   gfx.setTextWrap(false);
   gfx.clipL = L + 2, gfx.clipR = R - 2;
+#ifdef SCENE_PET
+  if (icon >= 0) {  // the clock: weather icon, 2 px gap, the time, centered together (test/preview.cpp draws it the same)
+    static const char K[] = "KGBY";
+    int x0 = (L + R - (w + 11)) / 2 + 1;
+    for (int r = 0; r < pet::WX_H; r++)
+      for (int c = 0; c < 9; c++)
+        if (const char *k = strchr(K, pet::WX_ICON[icon][r][c])) gfx.drawPixel(x0 + c, Y + 2 + r, k == K ? scene::INK : scene::NCOL + (k - K));
+    gfx.setCursor(x0 + 11, Y + 3);
+    gfx.print(s);
+  } else
+#endif
   if (w <= inner) {
     gfx.setCursor((L + R - w) / 2 + 1, Y + 3);
     gfx.print(s);
@@ -432,7 +464,7 @@ void drawBubble(uint32_t now) {
 #else
   int y = 11;
 #endif
-  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now, y);
+  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now, y, msgIcon);
 #ifdef SCENE_PET
   if (scene::game.on) {  // a message covers the score for its time, the game goes on
     char g[24];

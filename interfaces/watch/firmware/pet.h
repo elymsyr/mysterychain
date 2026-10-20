@@ -115,6 +115,11 @@ enum Wx : uint8_t { CLEAR, CLOUDY, WIND, RAIN, SNOW, STORM };
 const char *const WX[] = {"clear", "cloudy", "wind", "rain", "snow", "storm"};
 const float OVERCAST[] = {0, 0.45f, 0.15f, 0.7f, 0.65f, 0.85f};  // how far the sky greys over
 uint8_t wx = CLEAR;
+float gloom() { return wx == STORM ? 0.4f : wx == RAIN ? 0.2f : 0; }  // how much darker the land gets
+void dim(uint8_t *c, float m, float dark) {  // a scene's palette color (tint()): m of the way to its own grey, then darker
+  float l = 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2];
+  for (int i = 0; i < 3; i++) c[i] = lroundf((c[i] * (1 - m) + l * m) * (1 - dark));
+}
 // Icons for the clock bubble, 9 wide: K ink, G cloud grey, B rain blue, Y sun yellow (the firmware's extra palette entries).
 const int WX_H = 9;
 #define CLOUD_ROWS "...KKK...", ".KKGGGKK.", "KGGGGGGGK", "KGGGGGGGK", ".KKKKKKK."

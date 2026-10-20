@@ -95,10 +95,7 @@ bool at(float t0, float t1, float when) { return t0 < when && when <= t1; }
 void run(const Clip &c, const char *dir) {
   pet::s = pet::Saved();
   msg[0] = 0, msgT0 = -1, msgMusic = false, icon = -1;
-  pet::wx = pet::CLEAR;
-#if !defined(PAVI) && !defined(NAUSICAA)
-  snowCover = 0, boltT = 3;
-#endif
+  pet::wx = pet::CLEAR, snowCover = 0, boltT = 3;
   game.on = false;
   music(false);
   pose(IDLE, 0.5f);
@@ -203,6 +200,14 @@ void autopilot(float t, float until) {
 }
 #endif
 
+#if defined(PAVI) || defined(NAUSICAA)
+const int SUN_POSE = BASK, SNOW_POSE = CATCH;  // the weather tricks the clips call up
+const float SNOW_S = 2.6f;
+#else
+const int SUN_POSE = SUNBATHE, SNOW_POSE = SNOWPLAY;
+const float SNOW_S = 2.4f;
+#endif
+
 int main(int argc, char **argv) {
   const char *dir = argc > 1 ? argv[1] : ".";
   init();
@@ -257,15 +262,14 @@ int main(int argc, char **argv) {
       {"groom", 13 * 60, 4, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(GROOM, 3.2f); }},
       {"tail_chase", 13 * 60, 3, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(SPIN, 2.2f); }},
 #endif
-#if !defined(PAVI) && !defined(NAUSICAA)
       // Weather (A5): each kind once, by day and some by night; clock_icons taps the clock through all of them.
-      {"wx_clear", 11 * 60, 8, [] { pet::wx = pet::CLEAR; }, [](float a, float b) { if (at(a, b, 0.5f)) pose(SUNBATHE, 6.5f); }},
+      {"wx_clear", 11 * 60, 8, [] { pet::wx = pet::CLEAR; }, [](float a, float b) { if (at(a, b, 0.5f)) pose(SUN_POSE, 6.5f); }},
       {"wx_cloudy", 13 * 60, 6, [] { pet::wx = pet::CLOUDY; }, [](float a, float b) { if (at(a, b, 3)) cheer(); }},
       {"wx_wind", 13 * 60, 9, [] { pet::wx = pet::WIND; }, [](float a, float b) { if (at(a, b, 0.3f)) visit(); }},
       {"wx_rain", 14 * 60, 10, [] { pet::wx = pet::RAIN; }, [](float a, float b) { if (at(a, b, 6)) shake(); }},
       {"wx_rain_night", 23 * 60 + 30, 7, [] { pet::wx = pet::RAIN; }, idle},
       {"wx_snow", 10 * 60, 10, [] { pet::wx = pet::SNOW, snowCover = 0.8f; }, [](float a, float b) {
-         if (at(a, b, 0.3f) || at(a, b, 5)) pose(SNOWPLAY, 2.4f);
+         if (at(a, b, 0.3f) || at(a, b, 5)) pose(SNOW_POSE, SNOW_S);
        }},
       {"wx_snow_night", 21 * 60 + 30, 6, [] { pet::wx = pet::SNOW, snowCover = 1; }, idle},
       {"wx_storm", 16 * 60, 10, [] { pet::wx = pet::STORM, boltT = 1.2f; }, idle},
@@ -276,7 +280,6 @@ int main(int argc, char **argv) {
          for (int k = 0; k < 6; k++)
            if (at(a, b, 2.f * k + 0.1f)) pet::wx = k, tint(13 * 60), icon = k, strcpy(msg, "13:00"), msgT0 = b, msgDur = 1.9f, msgMusic = false, msgColor = INK;
        }},
-#endif
       {"dance", 13 * 60, 5, none, [](float a, float b) { if (at(a, b, 0.3f)) pose(DANCE, 4.5f); }},
 #ifdef NAUSICAA
       {"game_night", 21 * 60 + 30, 8, [] { for (auto &b : pet::s.best) b = 40; }, [](float a, float b) {

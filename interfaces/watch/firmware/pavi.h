@@ -24,7 +24,7 @@ enum : uint8_t {
   SKY0, SKY1, SKY2, SKY3, AUR0, AUR1, AUR2, STAR, ROOF, ROOF2, LAMP, WALL, WALL2,
   INK, SKIN, HAIR, HAIR2, HAIRL, BAND, EYE, CREAM, MOUTH, CLOAK, CLOAK2, SHIRT, BELT, PANTS,
   WING, FAIRY, GLOW, SHADOW, SUN, MOON, CLOUD, PINK, APPLE, LEAF, LEAF2, GREY, CLAY,
-  GRASS, GRASS2, HAZE, ROAD, ROAD2, RIVER, RIVER2, HILL, FLAME, FLAME2, NCOL
+  GRASS, GRASS2, HAZE, ROAD, ROAD2, RIVER, RIVER2, HILL, FLAME, FLAME2, DROP, FLAKE, FLASH, NCOL
 };
 uint8_t PAL[NCOL][3] = {  // night look; tint() rewrites the sky, roofs, wall, star, sun, moon, cloud and shadow entries
     {8, 12, 36},    {12, 30, 64},   {16, 52, 86},   {28, 80, 104},  // night sky, top to horizon
@@ -40,6 +40,7 @@ uint8_t PAL[NCOL][3] = {  // night look; tint() rewrites the sky, roofs, wall, s
     {40, 86, 62},   {28, 64, 48},   {34, 64, 80},    // travel: grass, dark grass, far ground haze
     {74, 58, 60},   {56, 42, 48},   {30, 60, 110},  {80, 120, 170}, {26, 40, 62},  // road, its edge, river, ripple, hills
     {255, 130, 40}, {255, 228, 120},                                 // fire, its core
+    {205, 222, 255}, {250, 252, 255}, {214, 212, 250},               // weather: raindrop, snow, lightning flash
 };
 
 // ---- Time of day (K6): the palette indices stay, their RGB follows the clock (pet::look) ----
@@ -73,6 +74,13 @@ void tint(int minuteOfDay) {
   for (int k = 0; k < NT; k++)
     for (int c = 0; c < 3; c++) PAL[TINTED[k]][c] = lroundf(LOOK[a][k][c] * (1 - f) + LOOK[b][k][c] * f);
   nightW = (a == pet::NIGHT ? 1 - f : 0) + (b == pet::NIGHT ? f : 0);
+  // Weather: the sky and the far layers grey over (toward their own brightness), a storm or rain also darkens the land.
+  static const uint8_t AIR[] = {SKY0, SKY1, SKY2, SKY3, ROOF, ROOF2, HAZE, HILL},
+                       LAND[] = {WALL, WALL2, SHADOW, GRASS, GRASS2, ROAD, ROAD2, RIVER, RIVER2};
+  float ov = pet::OVERCAST[pet::wx], dark = pet::gloom();
+  for (uint8_t k : AIR) pet::dim(PAL[k], ov, dark);
+  pet::dim(PAL[CLOUD], ov, dark * 0.6f);
+  for (uint8_t k : LAND) pet::dim(PAL[k], ov * 0.3f, dark);
 }
 bool sunUp() { return clockMin >= SUNRISE && clockMin < SUNSET; }
 
@@ -94,12 +102,14 @@ const char *const HEAD[][HEAD_H] = {
     {TOP, CHEEK, "KhHHHSSKKSSSKKSK", "KhHHHSKSSKSKSSKK", "KhHHHSSSSKKKKSSK", "KhHHHHSSSKMMKSK.", "KhHHHHHSSKKKSK..", CHIN},  // yawn
     {TOP, "KhHHHSSKSSSSSKSK", "KhHHHSSEKSSSKESK", "KhHHHSSEESSSEESK", CHEEK, "KhHHHHSSSSKKSSK.", "KhHHHHHSSKSSKK..", CHIN},  // frown
     {TOP, "KhHHHSKSKSSKSKSK", "KhHHHSSKSSSSKSSK", "KhHHHSKSKSSKSKSK", CHEEK, "KhHHHHSSSSKKSSK.", "KhHHHHHSSSSSSK..", CHIN},  // x x
+    {TOP, "KhHHHSSKKSSSKKSK", "KhHHHSSWESSSWESK", "KhHHHSSEESSSEESK", "KhHHHSSKKSSSKKSK", "KhHHHHSSSKMKSSK.", "KhHHHHHSSSKSSK..",
+     CHIN},  // wide, "o" (thunder)
 };
 #undef TOP
 #undef CHIN
 #undef CHEEK
 #undef SMILE
-enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY, EYES_HALF, EYES_CLOSED, EYES_PEEK, EYES_YAWN, EYES_FROWN, EYES_DIZZY };
+enum { EYES_OPEN, EYES_BLINK, EYES_HAPPY, EYES_HALF, EYES_CLOSED, EYES_PEEK, EYES_YAWN, EYES_FROWN, EYES_DIZZY, EYES_WIDE };
 
 const int TORSO_H = 9, TORSO_AX = 6;
 const char *const TORSO[TORSO_H] = {
@@ -199,14 +209,24 @@ float h01(int i) {  // a fixed random number in 0..1 per integer (scenery along 
   return (h & 0xffff) / 65536.0f;
 }
 
+// ---- Weather (pet::wx, weather.h): in the rain Pavi holds a water dome over herself; it goes where she goes ----
+const int WIND_DIR = 1;
+float canopy(float x);
+float landRow();
+float drift() { return 0; }  // her trip goes into the screen
+bool airy(uint8_t c) { return c <= STAR || c == CLOUD; }  // sky, aurora, stars, clouds
+void thunder();
+#include "weather.h"
+
 // Aurora curtain: bright lower edge in each column, turning purple and fading upward. Draws over sky only; fades out
-// (by density) as the night does.
+// (by density) as the night does, and behind clouds (gone once it rains or snows).
 void aurora() {
+  float show = nightW * fmaxf(0, 1 - 2 * pet::OVERCAST[pet::wx]);
   for (int x = 0; x < N; x++) {
     float c = 20 + 4 * sinf(x * 0.08f + T * 0.35f) + 2 * sinf(x * 0.21f - T * 0.6f);  // lower edge row
     float len = 10 + 3 * sinf(x * 0.13f + T * 0.5f), shine = 0.5f + 0.5f * sinf(x * 0.45f - T * 1.6f);
     for (int y = c - len; y <= c; y++) {
-      if (y < 0 || bg[y * N + x] > SKY3 || nightW <= bayer(x + 1, y)) continue;
+      if (y < 0 || bg[y * N + x] > SKY3 || show <= bayer(x + 1, y)) continue;
       float t = (c - y) / len, b = bayer(x, y);  // t: 0 lower edge, 1 top
       if (t < 0.15f) px(x, y, shine > b ? AUR2 : AUR1);
       else if (t < 0.55f) { if (0.8f > b) px(x, y, AUR1); }
@@ -223,14 +243,18 @@ void skyDisc(float cx, float cy, float r, uint8_t c, float cutX = 0, float cutY 
         fb[y * N + x] = c;
 }
 
-// Clouds drift by day, fading in by density at dawn and out at dusk.
+// Clouds drift by day, fading in by density at dawn and out at dusk. Weather: more of them (also at night), wind blows
+// them fast.
 void clouds() {
-  static const float CY[3] = {9, 19, 30}, CW[3] = {7, 5, 6}, SPD[3] = {1.6f, 2.4f, 1.1f}, X0[3] = {10, 60, 35};
-  for (int k = 0; k < 3; k++) {
-    float cx = fmodf(X0[k] + T * SPD[k], N + 30) - 15, w = CW[k];
+  static const float CY[6] = {9, 19, 30, 14, 25, 4}, CW[6] = {7, 5, 6, 8, 6, 9}, SPD[6] = {1.6f, 2.4f, 1.1f, 1.9f, 1.3f, 2.1f},
+                     X0[6] = {10, 60, 35, 85, 0, 48};
+  int n = pet::wx == pet::CLEAR ? 3 : pet::wx == pet::WIND ? 4 : 6;
+  float fast = pet::wx == pet::WIND ? 8 : pet::wx == pet::STORM ? 3 : 1, show = fmaxf(1 - nightW, n == 6 ? 0.9f : 0);
+  for (int k = 0; k < n; k++) {
+    float cx = fmodf(X0[k] + T * SPD[k] * fast, N + 30) - 15, w = CW[k];
     for (int y = CY[k] - 4; y <= CY[k] + 2; y++)
       for (int x = cx - w - 3; x <= cx + w + 3; x++) {
-        if ((unsigned)x >= N || (unsigned)y >= N || bg[y * N + x] > SKY3 || 1 - nightW <= bayer(x, y + 1)) continue;
+        if ((unsigned)x >= N || (unsigned)y >= N || bg[y * N + x] > SKY3 || show <= bayer(x, y + 1)) continue;
         float dx = x + 0.5f - cx, dy = y + 0.5f - CY[k];
         if (dy < 1.5f && (hypotf(dx / (w + 2), dy / 2) < 1 || hypotf(dx + 2, dy + 1.5f) < 2.8f || hypotf(dx - w / 3, dy + 2) < 2.5f))
           fb[y * N + x] = CLOUD;
@@ -245,8 +269,9 @@ float sp[NS];
 void drawSky() {
   memcpy(fb, bg, sizeof fb);
   aurora();
+  float ov = pet::OVERCAST[pet::wx];  // overcast hides stars by count, a thick one the sun and moon too
   for (int i = 0; i < NS; i++)  // twinkling stars (never over the aurora), fading in by count at dusk
-    if (i < NS * nightW && sinf(T * 1.7f + sp[i]) > -0.2f && fb[sy[i] * N + sx[i]] <= SKY3) px(sx[i], sy[i], STAR);
+    if (i < NS * nightW * (1 - ov) && sinf(T * 1.7f + sp[i]) > -0.2f && fb[sy[i] * N + sx[i]] <= SKY3) px(sx[i], sy[i], STAR);
   float mx = 62, my = 9;  // moon at a fixed spot while the clock is unknown
   bool moon = true;
   if (clockMin >= 0) {  // sun or moon on an arc from left (rise) to right (set)
@@ -254,15 +279,19 @@ void drawSky() {
     float p = moon ? float((clockMin - SUNSET + 1440) % 1440) / (1440 - SUNSET + SUNRISE) : float(clockMin - SUNRISE) / (SUNSET - SUNRISE);
     mx = 12 + 56 * p, my = GROUND - 14 - 40 * sinf(3.1416f * p);
   }
-  if (moon) skyDisc(mx, my, 4.6f, MOON, mx + 2.5f, my - 1.5f, 4.2f);  // crescent
-  else skyDisc(mx, my, 4.2f, SUN);
+  if (ov < 0.6f && moon) skyDisc(mx, my, 4.6f, MOON, mx + 2.5f, my - 1.5f, 4.2f);  // crescent
+  else if (ov < 0.6f) {
+    skyDisc(mx, my, 4.2f, SUN);
+    if (pet::wx == pet::CLEAR) rays(mx, my);
+  }
   clouds();
 }
 
 // ---- Girl, fairy, visitors ----
-enum { IDLE, RUN, CROUCH, JUMP, LAND, REACH, SLEEP, EAT, REFUSE, PURR, YAWN, BORED, HUNGRY, ANGRY, KO, WAVE, SIT, TWIRL, DANCE };
+enum { IDLE, RUN, CROUCH, JUMP, LAND, REACH, SLEEP, EAT, REFUSE, PURR, YAWN, BORED, HUNGRY, ANGRY, KO, WAVE, SIT, TWIRL, DANCE,
+       SHIELD, CATCH, BASK };  // weather: holding the dome up in the rain, catching snowflakes, sitting in the sun
 struct {
-  float x = 30, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0, peek = 0;
+  float x = 30, y = GROUND, vx = 0, vy = 0, t = 0, dur = 1, phase = 0, happy = 0, peek = 0, scare = 0;  // scare: thunder
   int dir = 1, st = IDLE, hops = 0;
   bool booped = false, yay = false, wake = false;  // yay: both arms up during a joy hop; wake: yawn after this landing
 } girl;
@@ -273,7 +302,7 @@ struct {
   float x = 0;
   bool on = false;
 } bowl;  // the empty plate while she's hungry
-enum { BUTTERFLY, FIREFLY };
+enum { BUTTERFLY, FIREFLY, BLOWN };  // BLOWN: a leaf in the wind
 struct {
   float x = 0, y = 0, vx = 0, vy = 0, t = 0, home = 0;
   int kind = BUTTERFLY;
@@ -333,19 +362,31 @@ void retarget() {  // in play the fairy darts to a new spot, away from the girl
   fairy.re = 1.2f + 1.3f * rnd();
 }
 
-// A butterfly (day) or a firefly (night) comes in and hovers near her; she reaches or jumps for it.
+// A butterfly (day), a firefly (night) or a leaf (wind) comes in and hovers near her; she reaches or jumps for it.
 void visit() {
   if (vis.on) return;
   vis.on = true, vis.flee = false, vis.t = 0;
-  vis.kind = sunUp() ? BUTTERFLY : FIREFLY;
+  vis.kind = pet::wx == pet::WIND ? BLOWN : sunUp() ? BUTTERFLY : FIREFLY;
   int open = girl.x < N / 2 ? 1 : -1;  // the roomier side
   vis.x = open > 0 ? 84 : -4;
   vis.home = clampf(girl.x + open * (24 + 10 * rnd()), 18, 62);
-  vis.y = vis.kind == BUTTERFLY ? GROUND - 18 : GROUND - 27;  // the butterfly in reach, the firefly needs a jump
+  vis.y = vis.kind == FIREFLY ? GROUND - 27 : GROUND - 18;  // the butterfly in reach, the firefly needs a jump
 }
 void flee() {
   vis.flee = true;
-  vis.vx = (vis.x >= girl.x ? 1 : -1) * 60, vis.vy = -30;
+  vis.vx = (vis.kind == BLOWN ? WIND_DIR : vis.x >= girl.x ? 1 : -1) * 60, vis.vy = -30;  // a leaf goes with the wind
+}
+
+// The water dome: a half ellipse standing on the wall, its top under the bubble band. Rain stops on it (canopy()).
+const float DOME_RX = 17, DOME_RY = 33;
+float domeX = 30, domeK = 0;  // its middle (follows her), how far it's up 0..1
+float canopy(float x) {
+  float u = (x - domeX) / DOME_RX;
+  return domeK > 0 && !rove && fabsf(u) < 1 ? GROUND - DOME_RY * domeK * sqrtf(1 - u * u) : 1e9f;
+}
+void thunder() {  // hands over her head; asleep she only peeks
+  if (girl.st == SLEEP) girl.peek = 1.5f;
+  else if (grounded()) girl.scare = 1.1f;
 }
 
 // Did the tip of the reaching front hand touch what she's after
@@ -383,8 +424,10 @@ float tripX = 40, tripTop = 30;  // on a trip: her screen x and head top (the fa
 void idleDone() { go(IDLE, (0.5f + 1.0f * rnd()) * (mood == pet::TIRED ? 2 : 1)); }  // tired: plays half as often
 
 void update(float dt) {
-  T += dt, DT = dt, girl.t += dt, girl.happy -= dt, girl.peek -= dt, awake -= dt, yawnT -= dt;
+  T += dt, DT = dt, girl.t += dt, girl.happy -= dt, girl.peek -= dt, girl.scare -= dt, awake -= dt, yawnT -= dt;
   if (girl.st == IDLE && mood == pet::HAPPY && !vis.on && !rove) funT -= dt, tripT -= dt;
+  domeK = clampf(domeK + (wet() && !rove ? 1.6f : -1.6f) * dt, 0, 1);
+  domeX += (girl.x - domeX) * fminf(1, 4 * dt);
   const int d = girl.dir;
 
   // Fairy: glides to its target as a damped spring. Circles above the girl's head when calm, flees in play, keeps her
@@ -396,18 +439,22 @@ void update(float dt) {
     float hx = girl.x + 10 * sinf(T * 0.6f), hy = girl.y - 32 + 3 * sinf(T * 1.2f);
     switch (girl.st) {
       case SLEEP: hx = girl.x - d, hy = girl.y - 27, wob = 0; break;
-      case SIT: hx = girl.x + d * 9, hy = GROUND - 3, wob = 0.3f; break;
+      case SIT: case BASK: hx = girl.x + d * 9, hy = GROUND - 3, wob = 0.3f; break;
+      case SHIELD: hx = girl.x + d * 8, hy = girl.y - 24, wob = 0.5f; break;  // under the dome with her
       case DANCE: hx = girl.x + 14 * cosf(T * 2.5f), hy = girl.y - 20 + 8 * sinf(T * 2.5f); break;
       case PURR: hx = girl.x + 9 * cosf(T * 5), hy = girl.y - 27 + 3 * sinf(T * 5), wob = 0.3f; break;
       case BORED: case HUNGRY: hx = girl.x + d * 9, hy = girl.y - 15 + sinf(T * 0.8f), wob = 0.3f; break;
       case WAVE: hx = girl.x + d * 13, hy = girl.y - 30; break;
     }
+    if (domeK > 0.5f) hy = fmaxf(hy, girl.y - 26);              // the rain: inside the dome
+    if (girl.scare > 0) hx = girl.x - d * 6, hy = girl.y - 20, wob = 0;  // thunder: hides behind her
     if (rove) hx = tripX + 13, hy = tripTop + 4 + 3 * sinf(T * 1.2f);
     fairy.tx = hx, fairy.ty = hy;
   }
   float tx = fairy.tx + wob * 2.5f * sinf(T * 2.3f), ty = fairy.ty + wob * 2 * sinf(T * 3.7f);
   fairy.vx += (6 * (tx - fairy.x) - 2.4f * fairy.vx) * dt;
   fairy.vy += (6 * (ty - fairy.y) - 2.4f * fairy.vy) * dt;
+  fairy.vx += WIND_DIR * 70 * gust * dt;  // a gust pushes it off, it struggles back
   fairy.x += fairy.vx * dt, fairy.y += fairy.vy * dt;
   if (fairy.x < 10 || fairy.x > 70) fairy.x = clampf(fairy.x, 10, 70), fairy.vx *= -0.5f;
   if (fairy.y < 12 || fairy.y > 56) fairy.y = clampf(fairy.y, 12, 56), fairy.vy *= -0.5f;
@@ -430,7 +477,7 @@ void update(float dt) {
     }
   }
   if (rove) return roveStep(dt);
-  if (mood == pet::HAPPY && girl.st == IDLE && awake <= 0 && !vis.on && (visitT -= dt) <= 0)
+  if (mood == pet::HAPPY && girl.st == IDLE && awake <= 0 && !vis.on && !wet() && !snowing() && (visitT -= dt) <= 0)
     visit(), visitT = 120 + 180 * rnd();
 
   switch (girl.st) {
@@ -444,11 +491,14 @@ void update(float dt) {
       else if (mood == pet::HUNGRY) bowl.x = clampf(girl.x + (girl.x < N / 2 ? 12 : -12), 14, 66), bowl.on = true, go(HUNGRY, 0);
       else if (mood == pet::SAD) go(BORED, 0);
       else if (mood == pet::TIRED && yawnT <= 0) yawnT = 30, go(YAWN, 1.5f);
+      else if (wet()) go(SHIELD, 0);  // happy or tired: holds the dome up until the rain stops
       else if (tripT <= 0) tripT = 180 + 240 * rnd(), travel(15 + 10 * rnd());
       else if (funT <= 0) {
-        float r = rnd();
-        funT = 10 + 15 * rnd();
-        if (r < 0.3f) go(WAVE, 2.4f);
+        float r = rnd(), w = rnd();
+        funT = (snowing() ? 4 : 10) + 15 * rnd();
+        if (snowing() && w < 0.75f) go(CATCH, 2.6f);
+        else if (pet::wx == pet::CLEAR && sunUp() && w < 0.4f) go(BASK, 8);
+        else if (r < 0.3f) go(WAVE, 2.4f);
         else if (r < 0.55f) go(SIT, 6 + 4 * rnd());
         else if (r < 0.8f) go(TWIRL, 1.6f);
         else go(DANCE, 6);
@@ -525,6 +575,16 @@ void update(float dt) {
       if (girl.t > girl.dur) go(IDLE, 1 + rnd());
       break;
     }
+    case SHIELD:
+      if (!wet() || (mood != pet::HAPPY && mood != pet::TIRED) || (mood == pet::TIRED && yawnT <= 0)) go(IDLE, 1);
+      break;
+    case CATCH:  // a flake lands in her hand and sparkles
+      if (!girl.booped && girl.t > 1.5f) girl.booped = true, girl.happy = 1, burst(girl.x + girl.dir * 7.6f, girl.y - 16);
+      if (girl.t > girl.dur) go(IDLE, 1 + rnd());
+      break;
+    case BASK:
+      if (girl.t > girl.dur || pet::wx != pet::CLEAR || !sunUp()) go(IDLE, 1 + rnd());
+      break;
   }
 }
 
@@ -533,6 +593,7 @@ const int NH = 6;
 float hx[NH], hy[NH], hpx[NH], hpy[NH];
 bool hairReady = false;
 void ponytail(float ax, float ay) {
+  float wind = pet::wx == pet::WIND ? WIND_DIR * (90 + 200 * gust) : 0;  // px/s²: it streams out in a gust
   if (!hairReady)
     for (int i = 0; i < NH; i++) hx[i] = hpx[i] = ax, hy[i] = hpy[i] = ay + i * 1.6f, hairReady = true;
   float jump = ax - hx[0];
@@ -542,7 +603,7 @@ void ponytail(float ax, float ay) {
   for (int i = 1; i < NH; i++) {
     float vx = (hx[i] - hpx[i]) * 0.9f, vy = (hy[i] - hpy[i]) * 0.9f;
     hpx[i] = hx[i], hpy[i] = hy[i];
-    hx[i] += vx, hy[i] += vy + G * DT * DT;
+    hx[i] += vx + wind * DT * DT, hy[i] += vy + G * DT * DT;
     float dx = hx[i] - hx[i - 1], dy = hy[i] - hy[i - 1], l = sqrtf(dx * dx + dy * dy) + 1e-6f;
     hx[i] = hx[i - 1] + dx * 1.6f / l, hy[i] = hy[i - 1] + dy * 1.6f / l;
   }
@@ -646,6 +707,19 @@ void drawGirl() {
     case TWIRL:
       th[0] = th[1] = 1.5f, hip += 0.6f * fabsf(sinf(girl.t * 15)), eyes = EYES_HAPPY;
       break;
+    case SHIELD:  // a hand up to the dome, now and then looking up at it
+      th[1] = 2.55f + 0.1f * sinf(T * 3), th[0] = 0.3f;
+      if (fmodf(girl.t, 5) > 3.8f) hdy = -1;
+      break;
+    case CATCH: {  // arms up taking turns, face up, glad once she has one
+      float k = sinf(girl.t * 5);
+      th[0] = 2.3f + 0.35f * k, th[1] = 2.3f - 0.35f * k, hip += 0.4f * fabsf(k), hdy = -1;
+      eyes = girl.t > 1.5f ? EYES_HAPPY : EYES_OPEN;
+      break;
+    }
+    case BASK:  // sitting in the sun, leaning back on her hands, eyes shut
+      legs = OUT, hip = 1.5f, th[0] = 0.55f, th[1] = 0.15f, tap = 0.8f * sinf(T * 1.5f), hdy = -1, eyes = EYES_HAPPY;
+      break;
     case DANCE: {  // to a 120 bpm beat: arms take turns, then both up and side steps, then a twirl (update())
       float b = T * 2, ph = fmodf(b, 1), bounce = fabsf(sinf(3.1416f * ph));
       int beat = (int)b % 8;
@@ -658,8 +732,11 @@ void drawGirl() {
     }
   }
   if (girl.yay) th[0] = th[1] = 2.6f + 0.25f * sinf(T * 18);
+  bool scared = girl.scare > 0 && !air && st != SLEEP;
+  if (scared) th[0] = th[1] = 2.85f, hip -= 0.8f, eyes = EYES_WIDE;  // thunder: hands to her head, ducking, shivering
+  if (gust > 0.6f && eyes < 0 && girl.happy <= 0) eyes = EYES_HALF;  // squints into a gust
 
-  int cx = lroundf(girl.x), hy = lroundf(girl.y - hip), ty = hy - 8;  // hip and torso top rows
+  int cx = lroundf(girl.x + (scared ? 0.6f * sinf(T * 60) : 0)), hy = lroundf(girl.y - hip), ty = hy - 8;  // hip, torso top
   int hx0 = cx + lroundf(hdx), ky = ty - 16 + lroundf(hdy);             // head
   shadow(cx, 7 * fmaxf(0.3f, 1 - (GROUND - girl.y) / 30));
   ponytail(hx0 - d * 7.0f, ky + 14.5f);
@@ -723,10 +800,29 @@ void drawVisitor() {
   if (!vis.on) return;
   int x = lroundf(vis.x), y = lroundf(vis.y + 2 * sinf(T * 3));
   if (vis.kind == BUTTERFLY) art(FLY[sinf(T * 20) > 0], 5, x - 3, y - 2);
+  else if (vis.kind == BLOWN) art(LEAF_ART[sinf(T * 9) > 0], 3, x - 2, y - 1);
   else {  // firefly: wings and a glowing tail that pulses
     px(x - 1, y - 1, WING), px(x + 1, y - 1, WING), px(x, y, INK);
     px(x, y + 1, sinf(T * 5) > -0.3f ? LAMP : BELT);
   }
+}
+
+void drawDome() {  // a shimmering water outline with gaps running along it and a glint; rain splashes on it
+  if (domeK <= 0 || rove) return;
+  for (int k = 0; k <= 96; k++) {
+    float a = k * 3.1416f / 96, x = domeX + DOME_RX * cosf(a), y = GROUND - DOME_RY * domeK * sinf(a);
+    if ((k + int(T * 10)) % 5) px(x, y, sinf(a * 3 - T * 1.5f) > 0.85f ? CREAM : WING);
+  }
+}
+
+void drawSnowCover() {  // on the wall top, caps on the roofs (a trip: drawRove snows its ground)
+  if (snowCover <= 0) return;
+  for (int y = 1; y < N; y++)
+    for (int x = 0; x < N; x++) {
+      uint8_t &c = fb[y * N + x];
+      bool cap = (c == ROOF || c == ROOF2) && airy(fb[(y - 1) * N + x]);
+      if ((c == WALL || cap) && h01(x * 977 + y * 131) < snowCover * 1.1f) c = FLAKE;
+    }
 }
 
 // Pavi's game is the trip below, steered by tilting (not game.h's runner); it keeps its score in the shared runner state.
@@ -767,6 +863,7 @@ void puff(float x, float y, float vx, float vy, float life, uint8_t c) {
 }
 
 int elemAt(float w) { return int(w / SEG) & 3; }
+float landRow() { return rove ? HZ + 6 + (N - HZ - 6) * rnd() : GROUND - 1 + 2.5f * rnd(); }  // the road, or the wall top
 void obNew(Thing &o, float after) { o = {after + 6 + 6 * rnd(), (int(rnd() * 3) - 1) * LANE, uint8_t(rnd() * 3)}; }
 void sideNew(Thing &o, float after) {
   o = {after + 1.5f + 3 * rnd(), (rnd() < 0.5f ? -1 : 1) * (2.2f + 2.5f * rnd()), uint8_t(rnd() < 0.8f ? TREE : PILLAR)};
@@ -930,10 +1027,13 @@ void drawRove() {
         if (elemAt(w) == WATER) c = fmodf(w * 1.3f + 0.25f * sinf(wx * 5 + T * 2), 1) < 0.2f ? RIVER2 : RIVER;
         else c = h01(int(w * 3) * 131 + int(floorf(wx * 5))) < 0.18f ? ROAD2 : ROAD;
       } else c = aw < 1.4f ? ROAD2 : stripe ? GRASS : GRASS2;
+      float snow = game.on || c == RIVER || c == RIVER2 ? 0 : snowCover * (aw < 1.4f ? 0.5f : 0.9f);  // less on the road
+      if (snow > 0 && h01(int(w * 4) * 7919u + int(floorf(wx * 6)) * 31u) < snow) c = FLAKE;  // snow, fixed to the ground
       if (z > 14 && (z - 14) / 10 > bayer(x, y)) c = HAZE;
       fb[y * N + x] = c;
     }
   }
+  if (!game.on) drawFlash(), drawDrops();  // no weather in the game
   const Thing *all[NOB + NSIDE];  // far to near, she goes in at her depth
   int n = 0;
   for (auto &o : obs) all[n++] = &o;
@@ -984,6 +1084,7 @@ void drawRove() {
   for (; i < n; i++) drawThing(*all[i]);
   for (auto &b : bits)
     if (b.life > 0) px(b.x, b.y, b.c);
+  if (!game.on) drawLeaves();
 }
 
 // ---- Game: the trip, steered. Tilt the keychain left / right for that lane, hold it level for the middle one.
@@ -1134,16 +1235,22 @@ void step(float dt) {
     return;
   }
   update(dt);
+  weatherStep(dt);
   if (rove) {
     drawRove();
     drawFairy();
     return;
   }
   drawSky();
+  drawFlash();
+  drawSnowCover();
+  drawDrops();
   if (bowl.on) art(PLATE, 3, lroundf(bowl.x) - 4, GROUND - 3);
   drawGirl();
   drawVisitor();
   drawFairy();
+  drawDome();
+  drawLeaves();
 }
 
 }  // namespace pavi
