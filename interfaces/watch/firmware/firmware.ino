@@ -51,12 +51,12 @@ LSM6DS3 imu(I2C_MODE, 0x6A);
 BLEUart bleuart;
 bool imuOk;
 // Palette entries past the scene's own: scene::NCOL pink, for hearts on any scene; NCOL + 1..3 the weather icon's
-// cloud grey, rain blue and sun yellow (pet::WX_ICON letters G, B, Y).
+// cloud grey, rain blue and sun yellow (pet::WX_ICON letters G, B, Y); NCOL + 4, 5 the battery's green and red.
 uint16_t pal[256], palInv[256], strip[240 * SC * BAND];  // palInv: find blinks with it
 
 void buildPal() {  // the pet scenes' palettes follow the time of day and the weather: rebuilt once a minute and on a change
-  static const uint8_t EXTRA[4][3] = {{255, 120, 150}, {150, 158, 172}, {60, 120, 230}, {250, 180, 30}};
-  for (int i = 0; i < scene::NCOL + 4; i++) {
+  static const uint8_t EXTRA[6][3] = {{255, 120, 150}, {150, 158, 172}, {60, 120, 230}, {250, 180, 30}, {60, 200, 80}, {230, 50, 40}};
+  for (int i = 0; i < scene::NCOL + 6; i++) {
     const uint8_t *rgb = i < scene::NCOL ? scene::PAL[i] : EXTRA[i - scene::NCOL];
     uint16_t c = tft.color565(rgb[0], rgb[1], rgb[2]), ci = tft.color565(255 - rgb[0], 255 - rgb[1], 255 - rgb[2]);
     pal[i] = c << 8 | c >> 8;  // display wants big endian: swap once here, no swap while sending
@@ -114,6 +114,35 @@ void showClock() {
 #ifdef SCENE_PET
   if (wxKnown) msgIcon = pet::wx;
 #endif
+}
+
+// Battery (electronics/tests/t7_battery): VBAT on P0.31 through 1M/510k, ~CHG LOW = charging. A fill gauge at the
+// bottom, no percent: CLOCK_MS after a tap, all the time while charging or low.
+const uint8_t CHG = 23;                // D23 = P0.17
+const float VBAT_CAL = 1.020;          // multimeter / reading, found in T7
+const float BAT_EMPTY_MV = 3300, BAT_FULL_MV = 4150, BAT_LOW_MV = 3550;
+float vbat;      // mV, smoothed; 0 = not read yet
+uint32_t batT;   // last tap
+
+float readVbat() {
+  uint32_t sum = 0;
+  for (int i = 0; i < 16; i++) sum += analogRead(PIN_VBAT);
+  return sum / 16.0f * 2400.0f / 4096.0f * 1510.0f / 510.0f * VBAT_CAL;
+}
+
+void drawBattery(uint32_t now) {
+  static uint32_t readT;
+  if (!vbat || now - readT >= 5000) readT = now, vbat = vbat ? vbat + (readVbat() - vbat) * 0.3f : readVbat();
+  bool chg = digitalRead(CHG) == LOW, low = vbat < BAT_LOW_MV;
+  if (!chg && !low && now - batT > CLOCK_MS) return;
+  const int X = 34, Y = 70, W = 12, H = 6;  // logical px: bottom center, inside the round screen
+  gfx.fillRect(X, Y, W, H, scene::INK);
+  gfx.fillRect(X + W, Y + 2, 1, 2, scene::INK);  // the nub
+  gfx.fillRect(X + 1, Y + 1, W - 2, H - 2, scene::CREAM);
+  // ponytail: linear in volts; a LiPo isn't, the middle bars move slower. A lookup table if it reads wrong.
+  int lvl = constrain((int)((vbat - BAT_EMPTY_MV) * (W - 2) / (BAT_FULL_MV - BAT_EMPTY_MV) + 0.5f), 1, W - 2);
+  if (chg) lvl += now / 400 % (W - 1 - lvl);  // charging: the fill sweeps up to full
+  gfx.fillRect(X + 1, Y + 1, lvl, H - 2, chg ? scene::NCOL + 3 : low ? scene::NCOL + 5 : scene::NCOL + 4);
 }
 
 // Find: buzz-buzz-pause and a blinking screen until the button is pressed, #find 0 arrives or FIND_MS passes.
@@ -269,6 +298,7 @@ const uint8_t MAX_TAPS = 2;  // no look to switch: a double tap feeds at once
 #endif
 void tapAction(uint8_t n) {  // a run of short button presses, once it's over
   if (n == 1) {
+    batT = millis();
     if (syncLocal) showClock();
     scene::cheer();
   } else if (n == 2) feed();
@@ -630,6 +660,10 @@ void setup() {
   pinMode(MOTOR, OUTPUT);
   digitalWrite(MOTOR, LOW);  // outputs start HIGH in this core: the motor would run through setup
   pinMode(BTN, INPUT_PULLUP);
+  pinMode(CHG, INPUT_PULLUP);
+  analogReference(AR_INTERNAL_2_4);  // 4.2 V x 510/1510 = 1.42 V < 2.4 V
+  analogReadResolution(12);
+  analogSampleTime(40);  // 1 MOhm divider: a short sample time reads low
   if (readResetReason() & POWER_RESETREAS_OFF_Msk) {  // woken by the button: on only if held, a tap goes back off
     while (digitalRead(BTN) == LOW && millis() < ON_HOLD_MS) delay(10);
     if (millis() < ON_HOLD_MS) powerOff();
@@ -774,6 +808,7 @@ void loop() {
       snprintf(line, sizeof line, "button %lu\n", ++presses);
       tell(line);
       buzz(1);
+      batT = now;
       if (syncLocal) showClock();
     }
     scene::cheer();
@@ -833,6 +868,7 @@ void loop() {
     return;
   }
   drawBubble(now);
+  drawBattery(now);
   const uint16_t *P = finding && (now - findT0) / 250 % 2 ? palInv : pal;  // find: inverted colors 2x a second
   tft.startWrite();
   tft.setAddrWindow(0, 0, 240, 240);

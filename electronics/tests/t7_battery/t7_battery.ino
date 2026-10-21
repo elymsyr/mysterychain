@@ -2,7 +2,7 @@
 #include <Adafruit_TinyUSB.h>  // for Serial
 
 const uint8_t CHG = 23;        // D23 = P0.17 (~CHG), variant.cpp
-const float VBAT_CAL = 1.000;  // multimeter / reading; measure once, write it here
+const float VBAT_CAL = 1.020;  // multimeter / reading; measure once, write it here
 
 float readVbatMv() {
   uint32_t sum = 0;

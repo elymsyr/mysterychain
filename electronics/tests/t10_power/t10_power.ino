@@ -9,7 +9,7 @@
 const uint8_t BTN = D0, TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, DISP_PWR = D7, CHG = 23;
 const uint32_t SPI_HZ = 8000000;                  // value that worked in T4
 const uint32_t ON_HOLD_MS = 1000, OFF_HOLD_MS = 3000;
-const float VBAT_CAL = 1.000;                     // value found in T7
+const float VBAT_CAL = 1.020;                     // value found in T7
 const float VBAT_OFF_MV = 3400;                   // turn off below this without USB (the PCM cuts much lower)
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);

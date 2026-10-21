@@ -7,7 +7,7 @@
 
 const uint8_t BTN = D0, TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, DISP_PWR = D7, CHG = 23;
 const uint32_t SPI_HZ = 8000000;     // value that worked in T4
-const float VBAT_CAL = 1.000;        // value found in T7
+const float VBAT_CAL = 1.020;        // value found in T7
 const float SHAKE_G = 0.8;
 const uint32_t MOTOR_MASK_MS = 400;  // ignore the IMU this long after a pulse ends; tune from the serial output
 const uint32_t DEBOUNCE_MS = 25, LONG_MS = 600;

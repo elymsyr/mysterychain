@@ -148,6 +148,7 @@ g++ -std=c++17 -DPETS -I firmware test/pet_test.cpp -o /tmp/pet_test && /tmp/pet
 cd test
 g++ -std=c++17 -O2 -I../firmware -I ~/Arduino/libraries/Adafruit_GFX_Library preview.cpp -o /tmp/preview_cat   # -DPAVI, -DNAUSICAA
 mkdir -p /tmp/clips && /tmp/preview_cat /tmp/clips && python3 preview.py /tmp/clips /tmp/gifs   # --sheet: contact sheets too
+python3 gallery.py [cat pavi nausicaa gandalf sauron]   # all of the above for every character, one page in the browser
 ```
 
 ## Rules for new animations

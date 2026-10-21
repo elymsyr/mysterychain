@@ -258,7 +258,7 @@ The XIAO has no hardware low-voltage cutoff. The firmware turns itself off below
 | T3 | RSSI at 1 m (bare board) | | |
 | T4 | Full-screen fill time (8 MHz / default) | | |
 | T6 | V_BE / V_CE(sat) / 3V3 with motor on | | |
-| T7 | `VBAT_CAL` | | |
+| T7 | `VBAT_CAL` | 1.020 (meter 3955 mV / serial ~3879 mV, charging) | 2026-10-21 |
 | T7 | Charge time (empty to full) | | |
 | T8 | `MOTOR_MASK_MS` (bench / case) | | |
 | T8 | VBAT drop over 30 min | | |
