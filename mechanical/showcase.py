@@ -2,7 +2,7 @@
 # Transparent background.
 #   1. Dump the cat's clips: interfaces/watch/test/preview.cpp (see its header), e.g. into /tmp/cat
 #   2. python3 showcase.py /tmp/cat <out dir>   -> showcase.webp (soft edges) + showcase.gif (1-bit alpha)
-# Needs numpy, trimesh, pyrender, pillow, and a GPU (EGL) or OSMesa for pyrender.
+# Needs numpy, scipy, trimesh, pyrender, pillow, and a GPU (EGL) or OSMesa for pyrender.
 import os
 import sys
 
@@ -10,6 +10,7 @@ os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 import numpy as np
 import pyrender
 import trimesh
+from scipy.spatial import ConvexHull
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,9 +37,13 @@ def part(name, flip):
     m = trimesh.load(f"{HERE}/print/{name}.stl")
     if flip:  # printed front face down (print_parts.py: Rot(180, 0, 0))
         m.apply_transform(trimesh.transformations.rotation_matrix(np.pi, [1, 0, 0]))
+    # centre of the round body: circle fit to the lower arc of the back face's outline (the cover's hooks stick out)
     v = m.vertices
-    edge = v[v[:, 0] > v[:, 0].max() - 0.01]  # the round body's rightmost points sit level with its centre
-    m.apply_translation([-(v[:, 0].max() + v[:, 0].min()) / 2, -edge[:, 1].mean(), -v[:, 2].min()])
+    face = v[v[:, 2] < v[:, 2].min() + 0.3]
+    hull = face[ConvexHull(face[:, :2]).vertices]
+    arc = hull[hull[:, 1] < hull[:, 1].min() + 10]
+    a, b, _ = np.linalg.lstsq(np.c_[arc[:, :2], np.ones(len(arc))], -(arc[:, :2] ** 2).sum(1), rcond=None)[0]
+    m.apply_translation([a / 2, b / 2, -v[:, 2].min()])
     return m
 
 
