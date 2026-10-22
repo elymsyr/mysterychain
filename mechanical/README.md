@@ -185,10 +185,11 @@ On the first print check: hook fit, display seating on its step, USB-C plug goin
 Uses the [text-to-cad](https://github.com/earthtojake/text-to-cad) `cad` skill scripts and a Python env with build123d. Run from this folder:
 
 ```bash
-C=~/.claude/plugins/cache/text-to-cad/cad/0.4.19/skills/cad/scripts
+SKILLS=/path/to/text-to-cad/skills   # your text-to-cad checkout
+C=$SKILLS/cad/scripts
 ~/.venvs/cad/bin/python $C/gen pet_case.step.py usb_plug.step.py --write   # STEP
 ~/.venvs/cad/bin/python print_parts.py                     # STL + 3MF (all four parts)
-~/.venvs/cad/bin/python ~/.claude/plugins/cache/text-to-cad/cad/0.4.19/skills/dxf/scripts/gen pet_case.dxf.py --write   # DXF
+~/.venvs/cad/bin/python $SKILLS/dxf/scripts/gen pet_case.dxf.py --write   # DXF
 ~/.venvs/cad/bin/python pet_case.dxf.py                    # drawing PDF
 ~/.venvs/cad/bin/python $C/inspect interfere pet_case.step --tolerance 0.0001 --format text
 ```
