@@ -1,52 +1,22 @@
 # MysteryChain
 
-A keychain virtual pet. A 1.28" round display, BLE and a vibration motor in a 42 mm 3D-printed case. Shake it and the pet plays; messages from your phone pop up in a speech bubble.
+A small hobby project: a virtual pet that lives on a keychain. A round 1.28" screen, a vibration motor and a tiny battery in a 3D-printed case about 4 cm across, paired with an Android app over Bluetooth.
 
 <p align="center">
-  <img src="mechanical/renders/front.png" alt="Case, front view" width="360">
+  <img src="docs/showcase.webp" alt="The keychain spinning slowly, a pixel cat playing on its round screen" width="360">
 </p>
 
-**Status:** working on the breadboard (four scenes, BLE messaging, clock sync, find, quick reactions, Android app). Case v7 (battery beside the XIAO in a full-depth lug, Ø42.2 × 65.8 × 13.7; thin front lip, tethered TPU USB plug, button on/off, battery switch on the back under tape) had its first PLA test print on 2026-10-16; v7.2 (fit fixes + XIAO held by its header pins in midframe rails) waits for a reprint. Drawings are current. The LiPo isn't bought yet, so nothing is assembled in the case.
+- A pixel pet on the screen: a cat, or one of a few other characters picked in the app. It gets hungry, sleepy and happy through the day.
+- Shake it and the pet plays; tap the case twice to pet it. It counts your steps too.
+- Messages from your phone pop up in a speech bubble, along with the time, the weather and the song that's playing.
+- One button: tap for the clock, hold to turn it on or off.
 
-## Hardware
+**Status:** works on the breadboard. The case is test-printed; nothing is assembled in it yet.
 
-| Part | Role |
-| --- | --- |
-| Seeed XIAO nRF52840 Sense | MCU, BLE, IMU, LiPo charger |
-| GC9A01 1.28" 240×240 round TFT | Display |
-| 10×3 mm coin vibration motor + BC337 | Haptics |
-| Tact button + AO3401A | Input and daily on/off in firmware; the MOSFET cuts the display |
-| EG1390 slide switch | Battery switch, from the back under tape (storage, water, hangs) |
-| LiPo 402030 (~200 mAh) | Battery |
+## Building one
 
-Full parts list, pinout and power notes: [electronics/](electronics/).
+Parts, wiring, flashing the firmware, the app and the case are in the [developer introduction](docs/developers.md).
 
-## Repository layout
+## License
 
-```text
-interfaces/
-  watch/        Device firmware: one Arduino sketch; cat, Pavi and Nausicaa picked from the phone
-  mobile-app/   Flutter companion app (Android), talks to the keychain over BLE
-electronics/    Parts, pinout, schematic, bring-up guide and test sketches
-mechanical/     Parametric case (build123d), STEP, print files, renders
-docs/           Roadmap
-```
-
-## Quick start
-
-1. Set up Arduino IDE 2 with the Seeed nRF52 core and two libraries: [bring-up, phase 0](electronics/bring-up.md#phase-0-tools-and-software).
-2. Wire the parts on a breadboard: [pinout](electronics/README.md#pinout).
-3. Flash [`interfaces/watch/firmware/firmware.ino`](interfaces/watch/firmware/firmware.ino) (scene: the `#include` line). Shake the board.
-4. Run the [mobile app](interfaces/mobile-app/) (`flutter run`) and send the pet a message.
-5. Print the case from [`mechanical/print/`](mechanical/print/) (PETG) and assemble: [mechanical](mechanical/README.md#assembly).
-
-## Docs
-
-| Doc | Content |
-| --- | --- |
-| [interfaces/watch](interfaces/watch/README.md) | Scenes, flashing, tunables, how to add animations |
-| [interfaces/mobile-app](interfaces/mobile-app/README.md) | App build and the BLE protocol |
-| [electronics](electronics/README.md) | Parts, pinout, motor driver, power (button on/off), power budget |
-| [electronics/bring-up](electronics/bring-up.md) | Step-by-step build and tests, troubleshooting |
-| [mechanical](mechanical/README.md) | Case design, assembly, printing |
-| [docs/roadmap](docs/roadmap.md) | Planned features and open decisions |
+[GPL-3.0](LICENSE)
