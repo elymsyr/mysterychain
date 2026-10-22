@@ -568,3 +568,11 @@ __cadgen__/
 # The Python template's generic lib/ and parts/ would hide project sources
 !/interfaces/mobile-app/lib/
 !/mechanical/parts/
+
+# AI assistant config (local only)
+.claude/
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+docs/superpowers/

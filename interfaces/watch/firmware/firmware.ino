@@ -17,6 +17,7 @@
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
+#include "battery.h"
 #include "pets.h"  // the scene: pets.h (all five, picked from the phone), cat.h, pavi.h or nausicaa.h alone
 
 const uint8_t TFT_CS = D1, TFT_DC = D2, TFT_RST = D3, MOTOR = D6, BTN = D0, DISP_PWR = D7;
@@ -31,6 +32,8 @@ const uint32_t CLOCK_MS = 3000;      // a button tap shows the time this long
 const uint32_t FIND_MS = 60000;      // find stops by itself after this long: a keychain out of reach mustn't drain the battery
 const float MOVE_G = 0.15;           // movement that keeps the screen on: |a| off 1 g by this much (check the at-rest noise)
 const uint32_t IDLE_OFF_MS = 60000;  // screen off after this long without movement or button
+const uint32_t DARK_WAIT_MS = 1000;  // screen off: the board sleeps this long between loops; button and IMU wake it at once
+const uint16_t BLE_DARK_LATENCY = 7; // screen off: the radio may skip this many 30 ms connection events (data to send still goes at once)
 const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
 const uint32_t MUSIC_MS = 12000;     // pet scenes: the music screen stays at least this long after a track change
 // Pet scene only:
@@ -51,12 +54,12 @@ LSM6DS3 imu(I2C_MODE, 0x6A);
 BLEUart bleuart;
 bool imuOk;
 // Palette entries past the scene's own: scene::NCOL pink, for hearts on any scene; NCOL + 1..3 the weather icon's
-// cloud grey, rain blue and sun yellow (pet::WX_ICON letters G, B, Y); NCOL + 4, 5 the battery's green and red.
+// cloud grey, rain blue and sun yellow (pet::WX_ICON letters G, B, Y).
 uint16_t pal[256], palInv[256], strip[240 * SC * BAND];  // palInv: find blinks with it
 
 void buildPal() {  // the pet scenes' palettes follow the time of day and the weather: rebuilt once a minute and on a change
-  static const uint8_t EXTRA[6][3] = {{255, 120, 150}, {150, 158, 172}, {60, 120, 230}, {250, 180, 30}, {60, 200, 80}, {230, 50, 40}};
-  for (int i = 0; i < scene::NCOL + 6; i++) {
+  static const uint8_t EXTRA[4][3] = {{255, 120, 150}, {150, 158, 172}, {60, 120, 230}, {250, 180, 30}};
+  for (int i = 0; i < scene::NCOL + 4; i++) {
     const uint8_t *rgb = i < scene::NCOL ? scene::PAL[i] : EXTRA[i - scene::NCOL];
     uint16_t c = tft.color565(rgb[0], rgb[1], rgb[2]), ci = tft.color565(255 - rgb[0], 255 - rgb[1], 255 - rgb[2]);
     pal[i] = c << 8 | c >> 8;  // display wants big endian: swap once here, no swap while sending
@@ -116,13 +119,15 @@ void showClock() {
 #endif
 }
 
-// Battery (electronics/tests/t7_battery): VBAT on P0.31 through 1M/510k, ~CHG LOW = charging. A fill gauge at the
-// bottom, no percent: CLOCK_MS after a tap, all the time while charging or low.
+// Battery (electronics/tests/t7_battery, t10_power): VBAT on P0.31 through 1M/510k, ~CHG LOW = charging. A gauge at
+// the bottom (battery.h), no percent: CLOCK_MS after a tap, all the time while on USB or low.
 const uint8_t CHG = 23;                // D23 = P0.17
 const float VBAT_CAL = 1.020;          // multimeter / reading, found in T7
-const float BAT_EMPTY_MV = 3300, BAT_FULL_MV = 4150, BAT_LOW_MV = 3550;
+const float VBAT_OFF_MV = 3400;        // off below this without USB (the battery's PCM cuts much lower)
+const int BAT_LOW_PCT = 15;            // red from here
 float vbat;      // mV, smoothed; 0 = not read yet
 uint32_t batT;   // last tap
+bat::Look batLook;
 
 float readVbat() {
   uint32_t sum = 0;
@@ -130,19 +135,36 @@ float readVbat() {
   return sum / 16.0f * 2400.0f / 4096.0f * 1510.0f / 510.0f * VBAT_CAL;
 }
 
-void drawBattery(uint32_t now) {
+bool usbIn() {  // VBUS present (a charger or a computer); BLE is running, so through the SoftDevice
+  uint32_t r = 0;
+  sd_power_usbregstatus_get(&r);
+  return r & POWER_USBREGSTATUS_VBUSDETECT_Msk;
+}
+
+// Every 5 s, screen on or off, but not while the motor runs or just after: its current sags the battery and the
+// reading with it. Too low without USB: off, before the LiPo is drained deep.
+void readBattery(uint32_t now, bool still) {
   static uint32_t readT;
-  if (!vbat || now - readT >= 5000) readT = now, vbat = vbat ? vbat + (readVbat() - vbat) * 0.3f : readVbat();
-  bool chg = digitalRead(CHG) == LOW, low = vbat < BAT_LOW_MV;
-  if (!chg && !low && now - batT > CLOCK_MS) return;
-  const int X = 34, Y = 70, W = 12, H = 6;  // logical px: bottom center, inside the round screen
-  gfx.fillRect(X, Y, W, H, scene::INK);
-  gfx.fillRect(X + W, Y + 2, 1, 2, scene::INK);  // the nub
-  gfx.fillRect(X + 1, Y + 1, W - 2, H - 2, scene::CREAM);
-  // ponytail: linear in volts; a LiPo isn't, the middle bars move slower. A lookup table if it reads wrong.
-  int lvl = constrain((int)((vbat - BAT_EMPTY_MV) * (W - 2) / (BAT_FULL_MV - BAT_EMPTY_MV) + 0.5f), 1, W - 2);
-  if (chg) lvl += now / 400 % (W - 1 - lvl);  // charging: the fill sweeps up to full
-  gfx.fillRect(X + 1, Y + 1, lvl, H - 2, chg ? scene::NCOL + 3 : low ? scene::NCOL + 5 : scene::NCOL + 4);
+  if (vbat && (now - readT < 5000 || !still)) return;
+  readT = now;
+  float v = readVbat();
+  vbat = vbat ? vbat + (v - vbat) * 0.3f : v;
+  if (vbat < VBAT_OFF_MV && !usbIn()) powerOff();
+}
+
+void drawBattery(uint32_t now) {
+  bool usb = usbIn(), chg = usb && digitalRead(CHG) == LOW;  // CHG floats without USB: only trusted with it
+  int pct = bat::percent(vbat);
+  bool low = !usb && pct < BAT_LOW_PCT;
+  batLook.on = usb || low || now - batT <= CLOCK_MS;
+  batLook.bolt = usb;
+  batLook.rgb = chg ? bat::YELLOW : low ? bat::RED : bat::GREEN;
+  batLook.fill = usb && !chg ? 1 : pct / 100.0f;  // USB in, charger done: full
+  if (chg) {  // the fill grows to full and starts over, 2 s, easing in and out
+    float t = now % 2000 / 1400.0f, e = t >= 1 ? 1 : t * t * (3 - 2 * t);
+    batLook.fill += (1 - batLook.fill) * e;
+  }
+  if (low) batLook.fill = fmaxf(batLook.fill, 0.08f);  // a sliver even at 0 %
 }
 
 // Find: buzz-buzz-pause and a blinking screen until the button is pressed, #find 0 arrives or FIND_MS passes.
@@ -390,6 +412,34 @@ float shakeLimit() {
 #else
   return SHAKE_G;
 #endif
+}
+
+// Screen off: the board sleeps in a semaphore wait; the button and the IMU's wake-up engine (on INT1) end it at once.
+SemaphoreHandle_t wakeSem;
+void wakeIsr() {
+  BaseType_t woke = pdFALSE;
+  xSemaphoreGiveFromISR(wakeSem, &woke);
+  portYIELD_FROM_ISR(woke);
+}
+
+void imuWakeSetup() {  // LSM6DS3TR-C wake-up: high-passed acceleration over WAKE_UP_THS, latched, on INT1
+  uint8_t v = 0;
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_TAP_CFG1);
+  imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, v | 0x91);  // interrupts on, HPF (not slope: too small at 416 Hz), latched
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_CTRL8_XL);
+  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL8_XL, v | 0x60);  // HPF at ODR/400 (~1 Hz): gravity out, a shake in
+  imu.writeRegister(LSM6DS3_ACC_GYRO_MD1_CFG, 0x20);       // INT1 = wake-up only
+  attachInterrupt(PIN_LSM6DS3TR_C_INT1, wakeIsr, RISING);
+}
+
+void imuWakeArm() {  // going dark: the threshold follows the shake setting (x 0.25 g at 16 g), old events cleared
+  uint8_t v = 0;
+  imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, constrain(int(shakeLimit() / 0.25f + 0.5f), 1, 63));  // bit 7 0: single tap only, as before
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);  // reading clears the latch (and INT1)
+}
+
+void bleDark(bool dark) {  // dark: slave latency, the radio wakes ~every 240 ms instead of 30; lit: every event again
+  if (Bluefruit.connected()) Bluefruit.Connection(Bluefruit.connHandle())->requestConnectionParameter(24, dark ? BLE_DARK_LATENCY : 0, 400);
 }
 
 // One message from the phone (rx has room for the terminating 0). Commands:
@@ -651,6 +701,8 @@ void powerOff() {
   flashSleep();
   while (digitalRead(BTN) == LOW) delay(10);  // System OFF with the button held = instant wake
   delay(50);
+  detachInterrupt(BTN);  // only the System OFF wake sense on the button from here
+  if (imuOk) detachInterrupt(PIN_LSM6DS3TR_C_INT1);
   systemOff(BTN, LOW);
 }
 
@@ -672,6 +724,7 @@ void setup() {
   displayOn();
   buildPal();
   scene::init();
+  imu.settings.gyroEnabled = 0;  // only the accelerometer is used: the gyro would draw ~0.5 mA all the time
   imuOk = imu.begin() == 0;
   if (!imuOk) Serial.println("NO IMU: shake won't work");
 #ifdef SCENE_PET
@@ -683,6 +736,9 @@ void setup() {
   retint();
 #endif
 #endif
+  wakeSem = xSemaphoreCreateBinary();
+  attachInterrupt(BTN, wakeIsr, FALLING);
+  if (imuOk) imuWakeSetup();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);  // large MTU: long messages arrive in one write
   Bluefruit.begin();
@@ -703,7 +759,7 @@ void loop() {
 #ifdef SCENE_PET
   scene::music(musicScreen(now));
 #endif
-  scene::step(min(now - last, 50UL) / 1000.0f);
+  if (dispOn) scene::step(min(now - last, 50UL) / 1000.0f);  // dark: nothing to animate
   last = now;
   char line[32];
 
@@ -727,6 +783,7 @@ void loop() {
   if (bool(Bluefruit.connected()) != wasConn) {
     wasConn = !wasConn;
     strcpy(msg, wasConn ? "connected" : "disconnected");
+    if (wasConn && !dispOn) bleDark(true);
     show(1);
   }
 
@@ -843,12 +900,16 @@ void loop() {
 #else
   const uint32_t SHAKE_DELAY = 0;  // no petting: a shake counts at once
 #endif
-  if (imuOk && !finding && still) {
+  if (imuOk && !dispOn) {  // dark: no polling, the IMU's wake-up engine watches (imuWakeSetup())
+    uint8_t v = 0;
+    imu.readRegister(&v, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);  // read every loop: clears the latch, the motor's too
+    if (v & 0x08 && !finding && still) activeT = now;    // WU_IA
+    lastShake = now;  // the waking shake is not a shake event
+  } else if (imuOk && !finding && still) {
     float ax = imu.readFloatAccelX(), ay = imu.readFloatAccelY(), az = imu.readFloatAccelZ();
     float dev = fabsf(sqrtf(ax * ax + ay * ay + az * az) - 1.0f);
-    if (dev > (dispOn ? MOVE_G : shakeLimit())) activeT = now;  // dark: only a shake wakes it
-    if (!dispOn) lastShake = now;  // the waking shake is not a shake event
-    else if (dev > shakeLimit() && now - lastShake > SHAKE_GAP_MS) {
+    if (dev > MOVE_G) activeT = now;
+    if (dev > shakeLimit() && now - lastShake > SHAKE_GAP_MS) {
       lastShake = now;
       if (!shakeWait) shakeWait = true, shakeT = now, shakeDev = dev;
     }
@@ -860,10 +921,13 @@ void loop() {
     tell(line);
   }
 
-  if (dispOn && now - activeT >= IDLE_OFF_MS) displayOff();
-  else if (!dispOn && now - activeT < IDLE_OFF_MS) displayOn();
+  readBattery(now, still);
+  if (dispOn && now - activeT >= IDLE_OFF_MS) {
+    displayOff(), bleDark(true);
+    if (imuOk) imuWakeArm();
+  } else if (!dispOn && now - activeT < IDLE_OFF_MS) displayOn(), bleDark(false);
   if (!dispOn) {
-    delay(20);  // nothing to draw: let the CPU sleep, IMU still read ~40x a second
+    xSemaphoreTake(wakeSem, pdMS_TO_TICKS(still && !finding ? DARK_WAIT_MS : 20));  // the motor runs: keep its pulses timed
     t0 = now, n = 0;  // no fps catch-up spam on wake
     return;
   }
@@ -892,6 +956,7 @@ void loop() {
       for (int x = 0; x < 240; x++) p[x] = P[s[col[x]]];
       prev = sy;
     }
+    bat::draw(batLook, strip, y0, rows);
     tft.writePixels(strip, 240 * rows, true, true);
   }
   tft.endWrite();

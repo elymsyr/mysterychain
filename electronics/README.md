@@ -8,6 +8,11 @@ XIAO nRF52840 Sense + GC9A01 round display + coin vibration motor, powered by a 
 - Step-by-step build and tests: [bring-up.md](bring-up.md). Test sketches: [`tests/`](tests/).
 - A custom PCB that replaces the XIAO and the free-air parts is planned: [pcb-brief.md](pcb-brief.md) is the brief for its designer.
 
+`Load It`
+```bash
+cd interfaces/watch && arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840Sense --upload -p /dev/ttyACM0 firmware
+```
+
 ```mermaid
 flowchart LR
     BAT["LiPo 402030<br/>3.7 V ~200 mAh"] -->|"+"| SW2["SW2 battery switch<br/>(back, under tape)"]

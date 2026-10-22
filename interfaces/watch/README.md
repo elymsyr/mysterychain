@@ -16,13 +16,14 @@ Every scene behaves the same way (screens: [docs/mockups/device_screens.png](../
 - **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone. Once the clock is set, a tap also shows the time (`14:32`) in the bubble for 3 s.
 - **Find** (`#find`): `FIND ME!` in the bubble, the motor buzzes twice and pauses, the screen colors invert twice a second. A button press stops it and sends `found`; `#find 0` stops it from the app; after `FIND_MS` (60 s) it stops by itself and sends `find timeout`. Shakes are ignored while it runs.
 - **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
-- **Screen off:** no movement (`MOVE_G`) and no button for 1 min: the display goes dark (Q2 cut), BLE stays up. A shake (`SHAKE_G`), the button or `#find` brings it back; the waking shake is not sent as `shake N`. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
+- **Screen off:** no movement (`MOVE_G`) and no button for 1 min: the display goes dark (Q2 cut), BLE stays up. Dark, the board sleeps up to `DARK_WAIT_MS` (1 s) at a time: the button and the IMU's wake-up engine (high-passed shake over the shake threshold, on INT1) wake it at once, and it asks the phone for slave latency (`BLE_DARK_LATENCY`), so the radio wakes ~every 240 ms instead of 30. A shake (`SHAKE_G`), the button or `#find` brings it back; the waking shake is not sent as `shake N`. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
+- **Battery** ([`battery.h`](firmware/battery.h)): a gauge at the bottom of the screen for `CLOCK_MS` after a tap, always while on USB (bolt; yellow and filling = charging, green and full = done) or below 15 % (red). The level comes from a LiPo curve, read every 5 s, not during a buzz. Without USB below `VBAT_OFF_MV` (3.4 V) it turns itself off; the button turns it on again only to go off once more until it's charged. PC check: `g++ -std=c++17 -I firmware test/battery_test.cpp -o /tmp/battery_test && /tmp/battery_test /tmp/battery.ppm` (the `.ppm` shows the four looks).
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
 
 ## Pets
 
-With `cat.h` or `pavi.h` the character lives on its own: stats, moods, day and night, a runner game, a music screen. Both have the same set of animations, each in its own way (below: cat / Pavi). Screens: [day and night](../../docs/mockups/pet_day_night.png), [animations](../../docs/mockups/pet_animations.png), [game](../../docs/mockups/pet_game.png); every animation as a clip: [preview](#preview). Design: [spec](../../docs/superpowers/specs/2026-10-15-pet-design.md).
+With `cat.h` or `pavi.h` the character lives on its own: stats, moods, day and night, a runner game, a music screen. Both have the same set of animations, each in its own way (below: cat / Pavi). Screens: [day and night](../../docs/mockups/pet_day_night.png), [animations](../../docs/mockups/pet_animations.png), [game](../../docs/mockups/pet_game.png); every animation as a clip: [preview](#preview).
 
 - **Stats** ([`pet.h`](firmware/pet.h)): fullness, happiness, energy, 0–100, kept on the board only to pick the animations (not shown anywhere). Fullness empties in 10 h (half as fast asleep), happiness in 16 h awake (twice as fast when starving), energy in 16 h awake and refills in 8 h of sleep. Messages and reactions +8 (once a minute), petting +5, 100 steps +1, a game up to +15 and −10 energy. The pet never dies.
 - **Mood**, first that holds: `sleep` (night window or energy < 10), `hungry` (< 25), `sad` (< 25), `tired` (< 25), `happy`. Asleep: curled up with z's / hugging her knees, the fairy dozing on her head. Hungry: by an empty bowl / plate. Sad: lies down / sits with her head down. Tired: yawns. Happy: now and then a butterfly (day) or a mouse / firefly (night) comes by and gets chased; every 10–25 s an idle trick: grooming or a tail chase / a wave, sitting with her feet tapping, or a twirl.
@@ -66,6 +67,8 @@ Tunables at the top of `firmware.ino`:
 | `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
 | `MOVE_G` | 0.15 | Movement that keeps the screen on. Must sit above the at-rest noise |
 | `IDLE_OFF_MS` | 60000 | Screen off after this long without movement or button |
+| `DARK_WAIT_MS` | 1000 | Screen off: longest sleep between loops (button and IMU wake it sooner) |
+| `BLE_DARK_LATENCY` | 7 | Screen off: 30 ms connection events the radio may skip |
 | `CLOCK_MS` | 3000 | How long a button tap shows the time |
 | `MUSIC_MS` | 12000 | Pets: the music screen stays at least this long after a track change |
 | `FIND_MS` | 60000 | Find stops by itself after this long |
