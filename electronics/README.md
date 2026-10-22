@@ -6,6 +6,7 @@ XIAO nRF52840 Sense + GC9A01 round display + coin vibration motor, powered by a 
 
 - Schematic in [`schematic/`](schematic/) (`schematic.svg/png` transparent, `schematic_white.*` for printing). Bench variant, USB power only (no battery, no SW2) and a PNP (BC327 + 1 kΩ base resistor) as Q2 until the AO3401A is in hand: `schematic_pnp_white.*` (`schematic.py pnp`).
 - Step-by-step build and tests: [bring-up.md](bring-up.md). Test sketches: [`tests/`](tests/).
+- A custom PCB that replaces the XIAO and the free-air parts is planned: [pcb-brief.md](pcb-brief.md) is the brief for its designer.
 
 ```mermaid
 flowchart LR

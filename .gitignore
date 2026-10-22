@@ -568,11 +568,3 @@ __cadgen__/
 # The Python template's generic lib/ and parts/ would hide project sources
 !/interfaces/mobile-app/lib/
 !/mechanical/parts/
-
-# KiCad (electronics/pcb): generated scratch; the project files and lib/ are tracked
-!/electronics/pcb/lib/
-electronics/pcb/build/
-electronics/pcb/*-backups/
-electronics/pcb/fp-info-cache
-electronics/pcb/*.kicad_prl
-electronics/pcb/#auto_saved_files#
