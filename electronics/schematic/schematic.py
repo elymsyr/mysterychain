@@ -114,7 +114,7 @@ def draw(pnp=False):
             elm.Line().at(getattr(x, n)).left(1.0)
             elm.Tag().left().label(net, fontsize=9)
 
-        # ---- Motor driver: D6 -> R1 -> Q1 (BC337), M1 from 3V3 to the collector ----
+        # ---- Motor driver: D6 -> R1 -> Q1 (BC337), M1 from BAT+ (bench: 3V3) to the collector ----
         elm.Line().at(x.D6).left(0.8)
         r1 = elm.Resistor().left().label('R1\n1 kΩ', loc='top')
         bnode = elm.Dot()
@@ -130,26 +130,28 @@ def draw(pnp=False):
         rail = cnode.center.y + 4.0
         elm.Motor().at(cnode.center).up(4.0).label('M1\n10×3\nvibration motor', loc='bottom', ofst=(0, -0.3))
         mtop = elm.Dot()
-        elm.Vdd().label('3V3')
-        # D1: cathode (band) to 3V3
+        elm.Vdd().label('3V3' if pnp else 'BAT+')  # off the LDO: its current sagged 3V3 and dimmed the display
+        # D1: cathode (band) to the motor supply
         dxx = cnode.center.x - 2.2
         elm.Line().at(cnode.center).to((dxx, cnode.center.y))
         elm.Diode().at((dxx, cnode.center.y)).up(4.0).label('D1\n1N4148', loc='bottom')
         elm.Line().to(mtop.center)
-        # C1, C2: between 3V3 and GND, close to the motor
-        elm.Line().at((dxx, rail)).left(2.4)
-        c2 = elm.Dot()
-        elm.Capacitor(polar=True).down(3.0).label('C2\n100 µF', loc='bottom')
+        # C1, C2: between 3V3 and GND, hold 3V3 up for the display
+        c2 = elm.Dot().at((dxx - 3.0, rail))
+        elm.Vdd().at(c2.center).label('3V3')
+        elm.Capacitor(polar=True).at(c2.center).down(3.0).label('C2\n100 µF', loc='bottom')
         elm.Ground()
         elm.Line().at(c2.center).left(2.4)
         elm.Capacitor().down(3.0).label('C1\n100 nF', loc='bottom')
         elm.Ground()
-        elm.Dot().at((dxx, rail))
 
         # ---- Battery, through the battery switch SW2 to the BAT pads on the underside of the XIAO ----
         if pnp:  # bench: USB only, no battery
             text(((x.BATP.x + x.BATN.x) / 2, x.BATP.y - 0.8), 'BAT+ / BAT− unused: bench runs on USB only, no battery', 9, color='gray')
         else:
+            elm.Dot().at(x.BATP)
+            elm.Line().at(x.BATP).left(1.2)
+            elm.Tag().left().label('BAT+', fontsize=9)  # motor supply
             elm.Switch().at(x.BATP).down(1.6).label('SW2\nbattery switch\nEG1390', loc='bottom', ofst=(0, 0.2))
             b1 = elm.BatteryCell().down(3.0).label('B1\nLiPo 402030\n3.7 V ~200 mAh\nprotected (PCM)', loc='bottom', ofst=(0, 0.3))
             text((b1.center.x - 0.45, b1.center.y + 0.35), '+', 12)  # long plate = positive
@@ -163,15 +165,16 @@ def draw(pnp=False):
 
         # ---- title and notes ----
         title_y = 20.0
-        title = 'MysteryChain — schematic, bench variant: USB power, Q2 = PNP  (v3, 15 Oct 2026)' if pnp else 'MysteryChain — schematic  (v3, 15 Oct 2026)'
+        title = 'MysteryChain — schematic, bench variant: USB power, Q2 = PNP  (v4, 23 Oct 2026)' if pnp else 'MysteryChain — schematic  (v4, 23 Oct 2026)'
         text((-13.5, title_y), title, 16, halign='left')
         text((-13.5, title_y - 0.9), 'Pinout and notes: electronics/README.md · Build and tests: electronics/bring-up.md', 9,
              color='dimgray', halign='left')
         notes = [
-            'Labels with the same name (LCD_CS, LCD_DC, LCD_RST, LCD_EN) are connected. All 3V3 and GND symbols are one net.',
+            'Labels with the same name (LCD_CS, LCD_DC, LCD_RST, LCD_EN) are connected. All 3V3, BAT+ and GND symbols are one net each.',
             'Q1 BC337 legs: flat face toward you, legs down, left to right C–B–E (verify on your part with a diode test).',
-            'D1 band (cathode) goes to 3V3. Reversed, Q1 shorts 3V3 to GND when it turns on.',
-            'Solder C1, C2 and D1 close to the motor and the 3V3 node. Use a ceramic C2: the battery stays connected while off, '
+            'M1 + and the D1 band (cathode) go to BAT+, not 3V3: on 3V3 the motor current sagged the LDO and dimmed the display. '
+            'Firmware scales the PWM duty with VBAT so the 3 V motor sees ~3.1 V. Reversed, D1 shorts BAT+ to GND when Q1 turns on.',
+            'Solder D1 close to the motor, C1 and C2 close to the 3V3 node. Use a ceramic C2: the battery stays connected while off, '
             'and a tantalum may leak up to ~6 µA (0.01·C·V).',
             'Daily on/off is SW1 in firmware: display pins LOW, Q2 off, System OFF; hold SW1 ~1 s to wake, 3 s to turn off; '
             'USB plug-in also wakes it. '
@@ -189,7 +192,7 @@ def draw(pnp=False):
         ]
         if pnp:
             notes.append('Bench variant, Q2 = PNP until the AO3401A arrives: BC327, or 2N2907 / S8550 / 2N3906 (never an NPN). '
-                         'Firmware unchanged, D7 LOW = on.\n'
+                         'Firmware unchanged, D7 LOW = on. M1 stays on 3V3: BAT+ is only the charger output without a battery.\n'
                          '    R4 1 kΩ: ~2.5 mA base current saturates it for the display\'s 25–40 mA, ~0.1 V drop. '
                          'R3 100 kΩ base–emitter keeps it off.\n'
                          '    Legs: BC327 C–B–E (like BC337); S8550, 2N2907, 2N3906 E–B–C. Verify with a diode test, black probe on B.\n'
@@ -206,7 +209,7 @@ U2_PINS = ['VCC', 'GND', 'RST', 'CS', 'DC', 'SDA', 'SCL']
 # D1.1 anode, D1.2 cathode; B1.1 positive; C2.1 positive; M1.1 collector side.
 EXPECTED = [
     {'GND', 'U1.GND', 'U1.BATN', 'U2.GND', 'SW1.2', 'R2.2', 'Q1.emitter', 'C1.2', 'C2.2', 'B1.2'},
-    {'3V3', 'U1.V33', 'M1.2', 'D1.2', 'C1.1', 'C2.1', 'Q2.source', 'R3.2'},
+    {'3V3', 'U1.V33', 'C1.1', 'C2.1', 'Q2.source', 'R3.2'},
     {'U2.VCC', 'Q2.drain'},
     {'LCD_EN', 'U1.D7', 'Q2.gate', 'R3.1'},
     {'LCD_CS', 'U1.D1', 'U2.CS'},
@@ -218,7 +221,7 @@ EXPECTED = [
     {'U1.D6', 'R1.1'},
     {'R1.2', 'R2.1', 'Q1.base'},
     {'Q1.collector', 'M1.1', 'D1.1'},
-    {'U1.BATP', 'SW2.1'},
+    {'BAT+', 'U1.BATP', 'SW2.1', 'M1.2', 'D1.2'},
     {'SW2.2', 'B1.1'},
 ]
 EXPECTED_PNP = [n for n in EXPECTED if not n & {'Q2.source', 'Q2.drain', 'Q2.gate', 'SW2.1', 'SW2.2', 'GND'}] + [

@@ -152,6 +152,22 @@ void readBattery(uint32_t now, bool still) {
   if (vbat < VBAT_OFF_MV && !usbIn()) powerOff();
 }
 
+// Motor + is on BAT+, off the 3V3 regulator, so it no longer sags the display. The duty scales with the battery so the
+// 3 V motor sees ~MOTOR_MV at any charge. Each pulse soft-starts from MOTOR_START to that duty over MOTOR_RAMP_MS
+// (blocking, the loop is too slow for it with the display on): the start current still sags the battery a little.
+const float MOTOR_MV = 3100;        // what the motor saw on 3V3 through the BC337; higher = stronger, rated max ~3.6 V
+const uint32_t MOTOR_RAMP_MS = 30;  // 0 = hard start; longer = gentler but weaker short pulses
+const uint8_t MOTOR_START = 80;     // first duty of 255; too low and the motor stalls until the ramp ends
+
+void motor(bool on) {
+  static bool was = false;
+  uint8_t top = min(255.0f, 255 * MOTOR_MV / (vbat ? vbat : 4200));  // not read yet: assume full
+  if (on && !was)
+    for (uint32_t i = 0; i < MOTOR_RAMP_MS; i++) analogWrite(MOTOR, MOTOR_START + (top - MOTOR_START) * i / MOTOR_RAMP_MS), delay(1);
+  analogWrite(MOTOR, on ? top : 0);
+  was = on;
+}
+
 void drawBattery(uint32_t now) {
   bool usb = usbIn(), chg = usb && digitalRead(CHG) == LOW;  // CHG floats without USB: only trusted with it
   int pct = bat::percent(vbat);
@@ -689,7 +705,7 @@ void flashSleep() {  // on-board QSPI flash into deep power-down (0xB9): ~25 uA 
 }
 
 void powerOff() {
-  digitalWrite(MOTOR, LOW);
+  motor(false);
 #ifdef SCENE_PET
   petSave();
 #endif
@@ -741,6 +757,7 @@ void setup() {
   if (imuOk) imuWakeSetup();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);  // large MTU: long messages arrive in one write
+  Bluefruit.autoConnLed(false);  // no blue LED blinking while advertising: it shows through the case and costs power
   Bluefruit.begin();
   Bluefruit.setName("MysteryChain");
   bleuart.begin();
@@ -754,7 +771,6 @@ void setup() {
 }
 
 void loop() {
-  Bluefruit.autoConnLed(false);  // no blue LED blinking while advertising: it shows through the case and costs power
   static uint32_t last = millis(), n = 0, t0 = last;
   uint32_t now = millis();
 #ifdef SCENE_PET
@@ -882,7 +898,7 @@ void loop() {
   }
 
   uint32_t e = now - buzzT0, f = (now - findT0) % 1000;
-  digitalWrite(MOTOR, finding ? f < 360 && f % 240 < 120 : e < buzzN * buzzPer && e % buzzPer < buzzOn);  // find: buzz-buzz, pause
+  motor(finding ? f < 360 && f % 240 < 120 : e < buzzN * buzzPer && e % buzzPer < buzzOn);  // find: buzz-buzz, pause
   bool still = e >= buzzN * buzzPer + MOTOR_MASK_MS;  // motor vibration must not count as a shake or a tap
 
   static uint32_t activeT = 0;  // last movement or button edge; finding keeps the screen on

@@ -26,7 +26,7 @@ flowchart LR
     Q2 -->|"VCC"| DISP["GC9A01 display"]
     XIAO -->|"SPI: D8 SCK, D10 MOSI<br/>D1 CS, D2 DC, D3 RST"| DISP
     XIAO -->|"D6"| DRV["BC337 driver"]
-    XIAO -->|"3V3"| MOT["Motor"]
+    BATP --> MOT["Motor"]
     DRV --> MOT
     BTN["Tact button<br/>(also on/off)"] -->|"D0 / GND"| XIAO
     IMU["LSM6DS3TR-C<br/>(on board, internal I2C)"] --- XIAO
@@ -82,9 +82,9 @@ flowchart LR
 | D8 | P1.13 | Display SCK | Labeled "SCL" on the module |
 | D9 | P1.14 | Don't use | Claimed as SPI MISO |
 | D10 | P1.15 | Display MOSI | Labeled "SDA" on the module |
-| 3V3 | | Q2 source (display VCC through Q2), motor + | |
+| 3V3 | | Q2 source (display VCC through Q2) | |
 | GND | | Common ground | |
-| BAT+ / BAT− (underside pads) | | LiPo | BAT+ through SW2, BAT− straight |
+| BAT+ / BAT− (underside pads) | | LiPo, motor + | BAT+ through SW2, BAT− straight. Motor + (and the D1 band) on BAT+, not 3V3: its current sagged the regulator and dimmed the display |
 
 Pins used on the board itself (Seeed Arduino variant):
 
