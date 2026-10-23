@@ -155,7 +155,7 @@ void readBattery(uint32_t now, bool still) {
 // Motor + is on BAT+, off the 3V3 regulator, so it no longer sags the display. The duty scales with the battery so the
 // 3 V motor sees ~MOTOR_MV at any charge. Each pulse soft-starts from MOTOR_START to that duty over MOTOR_RAMP_MS
 // (blocking, the loop is too slow for it with the display on): the start current still sags the battery a little.
-const float MOTOR_MV = 3100;        // what the motor saw on 3V3 through the BC337; higher = stronger, rated max ~3.6 V
+const float MOTOR_MV = 2700;        // strength; 3100 = as on 3V3. Below ~2300 it may not start, rated max ~3.6 V
 const uint32_t MOTOR_RAMP_MS = 30;  // 0 = hard start; longer = gentler but weaker short pulses
 const uint8_t MOTOR_START = 80;     // first duty of 255; too low and the motor stalls until the ramp ends
 
