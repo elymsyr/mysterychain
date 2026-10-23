@@ -156,10 +156,12 @@ class _PetPageState extends State<PetPage> {
         ]),
       );
 
-  // Under the header: today's steps and mood (the pet's 0-100 stats stay on the board), and the weather it shows.
+  // Under the header: today's steps, mood and battery (the pet's 0-100 stats stay on the board), and the weather it shows.
   Widget statsPanel(Stats s) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: Text('${s.steps} steps today · ${s.mood}', style: const TextStyle(fontSize: 13, color: text2)),
+        child: Text(
+            '${s.steps} steps today · ${s.mood}${switch (s.battery) { null => '', -1 => ' · on USB', final b => ' · battery $b%' }}',
+            style: const TextStyle(fontSize: 13, color: text2)),
       );
 
   static const wxIcons = {

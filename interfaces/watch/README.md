@@ -76,7 +76,7 @@ Tunables at the top of `firmware.ino`:
 | `TAP_WAIT_MS` | 300 | Pets: a tap waits this long for a second one (double = feed) |
 | `SHAKE_WAIT_MS` | 300 | Pets: a shake is decided this late; a case double tap inside it is petting |
 | `TAP_GUARD_MS` | 500 | Pets: case taps this soon after a button edge are ignored |
-| `TAP_THS` | 3 | Pets: IMU tap threshold, × 0.5 g. Check through the printed case |
+| `TAP_THS` | 1 | Pets: IMU tap threshold, × 0.5 g. Check through the printed case |
 | `SAVE_S` | 600 | Pets: stats saved this often |
 | `WX_MS` | 4 h | Pets: a forecast (`#weather`) is dropped this long after it came |
 
@@ -111,7 +111,7 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `found` | Button pressed during find |
 | `media toggle` / `media next` | Pets: button tap / double tap on the music screen; the app plays/pauses or skips the playing session |
 | `find timeout` | Find stopped by itself after `FIND_MS` |
-| `stats <steps> <mood>` | Pets: after `#time`, on `#stats`, after a feed, and once a minute if a value changed |
+| `stats <steps> <mood> <battery %>` | Pets: after `#time`, on `#stats`, after a feed, and once a minute if a value changed; battery -1 = on USB |
 | `settings vib=<0\|1> shake=<g> night=<from>-<to> scene=<look> name=<cat>\|<pavi>\|<nausicaa>` | Pets: after `#time` and every `#set`; one name per look in `pets.h` order (a single-scene build sends one) |
 | `fed` / `full` | Pets: answer to a feed (button or app) |
 | `best <cat>\|<pavi>\|...` | Pets: right after every `settings`; each look's high score in `pets.h` order (a single-scene build sends one) |

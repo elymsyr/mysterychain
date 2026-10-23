@@ -43,7 +43,7 @@ const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for another
 const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double tap on the case inside it is petting
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
 const uint32_t WX_MS = 4 * 3600000;  // a forecast (#weather) covers this long: no new one by then = weather unknown again
-const uint8_t TAP_THS = 2;           // IMU tap threshold, x 0.5 g at the 16 g range: 3 missed half the taps through the printed case
+const uint8_t TAP_THS = 1;           // IMU tap threshold, x 0.5 g at the 16 g range: 2 still missed most second taps through the case
 const uint32_t SAVE_S = 600;         // stats saved to flash this often (and on feed, settings, new best, power off)
 const int TILT_AXIS = 1;             // Pavi's and Nausicaa's games: accel axis along the screen's left-right (0 x, 1 y, 2 z; check on the device)
 const float TILT_SIGN = -1;          // ... and its sign: tilted right must read + (-1 flips it)
@@ -153,6 +153,9 @@ void readBattery(uint32_t now, bool still) {
   float v = readVbat();
   vbat = vbat ? vbat + (v - vbat) * 0.3f : v;
   if (vbat < VBAT_OFF_MV && !usbIn()) powerOff();
+#ifdef SCENE_PET
+  pet::batLow = !usbIn() && bat::percent(vbat) < BAT_LOW_PCT;
+#endif
 }
 
 // Motor + is on BAT+, off the 3V3 regulator, so it no longer sags the display. The duty scales with the battery so the
@@ -262,7 +265,8 @@ void petSave() {
 void sendStats(bool force) {  // force: on connect and #stats; otherwise only when steps or mood changed
   static char last[64];
   char line[64];  // the 0-100 stats stay on the board: they only pick the animations
-  snprintf(line, sizeof line, "stats %lu %s\n", (unsigned long)pet::s.steps, pet::MOOD[pet::mood(hourNow())]);
+  snprintf(line, sizeof line, "stats %lu %s %d\n", (unsigned long)pet::s.steps, pet::MOOD[pet::mood(hourNow())],
+           usbIn() ? -1 : bat::percent(vbat));  // battery %, -1 = on USB
   if (!force && !strcmp(line, last)) return;
   strcpy(last, line);
   tell(line);
@@ -917,7 +921,9 @@ void loop() {
   static bool shakeWait = false;  // a shake detected at shakeT, counted SHAKE_DELAY later
 #ifdef SCENE_PET
   const uint32_t SHAKE_DELAY = SHAKE_WAIT_MS;
-  if (doubleTap() && still && !finding && now - btnT > TAP_GUARD_MS && !scene::game.on) {  // petting
+  bool dt = doubleTap();
+  if (dt) Serial.printf("TAPDBG double still=%d find=%d btnAgo=%lu game=%d dark=%d\n", still, finding, now - btnT, scene::game.on, !dispOn);  // TAPDBG temp
+  if (dt && still && !finding && now - btnT > TAP_GUARD_MS && !scene::game.on) {  // petting
     shakeWait = false;  // the "shake" was the tap
     scene::purr();
     pet::joy(pet::PET_JOY);

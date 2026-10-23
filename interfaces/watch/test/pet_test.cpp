@@ -150,6 +150,9 @@ int main() {
   assert(mood(12) == SAD);
   s.happy = 50;
   assert(mood(12) == TIRED);
+  s = Saved(), batLow = true;
+  assert(mood(12) == TIRED && mood(0) == SLEEP);
+  batLow = false;
 
   s = Saved();
   addSteps(250, 10);

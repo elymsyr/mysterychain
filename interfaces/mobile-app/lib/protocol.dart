@@ -1,6 +1,6 @@
 // The keychain's lines the app reads into records (interfaces/watch/README.md#protocol). Anything else is an event.
 
-typedef Stats = ({int steps, String mood});
+typedef Stats = ({int steps, String mood, int? battery}); // battery %: -1 on USB, null from an older board
 // night from == to: no night window; scene: the pet's look (one of [looks]); names: each look's own name
 typedef Settings = ({bool vib, double shake, int from, int to, String scene, Map<String, String> names});
 
@@ -10,8 +10,8 @@ String nameOf(Settings s) => s.names[s.scene] ?? looks[s.scene] ?? s.scene;
 typedef Game = ({int score, int best});
 
 Stats? parseStats(String line) {
-  final m = RegExp(r'^stats (\d+) (\w+)$').firstMatch(line);
-  return m == null ? null : (steps: int.parse(m[1]!), mood: m[2]!);
+  final m = RegExp(r'^stats (\d+) (\w+)(?: (-?\d+))?$').firstMatch(line);
+  return m == null ? null : (steps: int.parse(m[1]!), mood: m[2]!, battery: m[3] == null ? null : int.parse(m[3]!));
 }
 
 Settings? parseSettings(String line) {

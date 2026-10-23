@@ -4,7 +4,9 @@ import 'package:mysterychain/protocol.dart';
 
 void main() {
   test('parses the board lines the app keeps', () {
-    expect(parseStats('stats 1234 happy'), (steps: 1234, mood: 'happy'));
+    expect(parseStats('stats 1234 happy'), (steps: 1234, mood: 'happy', battery: null));
+    expect(parseStats('stats 1234 tired 12'), (steps: 1234, mood: 'tired', battery: 12));
+    expect(parseStats('stats 0 happy -1'), (steps: 0, mood: 'happy', battery: -1));
     final old = parseSettings('settings vib=1 shake=0.45 night=23-7 name=Mio Kedi')!;
     expect((old.vib, old.shake, old.from, old.to, old.scene), (true, .45, 23, 7, 'cat'));
     expect(old.names, {'cat': 'Mio Kedi'}); // records compare a map by identity
@@ -27,7 +29,7 @@ void main() {
       ..onLine('settings vib=0 shake=0.30 night=0-0 name=Pet')
       ..onLine('fed')
       ..onLine('found');
-    expect(k.stats, (steps: 10, mood: 'sleepy'));
+    expect(k.stats, (steps: 10, mood: 'sleepy', battery: null));
     expect(k.settings?.vib, isFalse);
     expect(k.ringing, isFalse);
     expect(k.events.map((e) => e.text), ['found', 'Ate']); // newest first; stats/settings aren't events

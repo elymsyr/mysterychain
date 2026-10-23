@@ -45,8 +45,11 @@ bool night(int hour) {  // inside the night window; hour -1 = clock unknown = ne
   return hour >= s.nightFrom || hour < s.nightTo;
 }
 
+bool batLow;  // set by the sketch: battery low, no USB; the pet looks tired until it charges
+
 Mood mood(int hour) {  // first that holds wins
   if (night(hour) || s.energy < 10) return SLEEP;
+  if (batLow) return TIRED;
   if (s.full < 25) return HUNGRY;
   if (s.happy < 25) return SAD;
   if (s.energy < 25) return TIRED;

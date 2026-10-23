@@ -45,8 +45,8 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | ID | Feature | What it does | Needs |
 | --- | --- | --- | --- |
 | S1 | Settings from the app | **Coded.** Vibration on/off, shake sensitivity (`SHAKE_G` today), quiet hours, pet name, the pet's look (cat or Pavi, 2026-10-16). Persisted in flash. | O1, O2, A4 |
-| S2 | Battery level | Shown on the device and in the app; the pet looks tired when low. Below ~3.4 V without USB it turns itself off (code in bring-up T10, not in the scenes yet). | LiPo, K1 |
-| S3 | Power saving | Display sleeps or fps drops when idle; wakes on button, shake or BLE event. | LiPo |
+| S2 | Battery level | **Coded 2026-10-23, not yet tested on a LiPo.** Gauge on the screen (charging animation), off below 3.4 V without USB. The % goes to the app in `stats`; below `BAT_LOW_PCT` without USB the pet looks tired. On the LiPo: check `VBAT_CAL` with a multimeter. | LiPo, K1 |
+| S3 | Power saving | **Coded.** 1 min without motion or button: screen dark, board sleeps, BLE slave latency; wakes on button or shake. On the LiPo: measure the current and tune `IDLE_OFF_MS` / `BLE_DARK_LATENCY` for battery life. | LiPo |
 
 **Power on/off** is coded in every scene: the button does it (hold 3 s = off, ~1 s = on, USB plug-in = on). The battery switch on the back (under tape) is only for storage, water and hangs. It needs the display switch Q2 (AO3401A), now a required part; until Q2 is fitted, "off" leaves the backlight on. Not tested on hardware yet (bring-up T10).
 
