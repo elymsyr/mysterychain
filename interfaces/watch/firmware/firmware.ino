@@ -41,6 +41,7 @@ const uint32_t MUSIC_PAUSE_MS = 60000;  // pet scenes: paused music keeps its sc
 const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: runner game (a buzz says "release now")
 const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for another one (double tap = feed, triple = next look)
 const uint32_t SHAKE_WAIT_MS = 400;  // a shake is decided this late: a double tap on the case inside it is petting
+const uint32_t TAP_GAP_MS = 120;     // case taps closer than this are one knock ringing through the case, not a double
 const uint32_t TAP_GUARD_MS = 500;   // case taps this soon after a button press are the button's click, not petting
 const uint32_t WX_MS = 4 * 3600000;  // a forecast (#weather) covers this long: no new one by then = weather unknown again
 const uint8_t TAP_THS = 1;           // IMU tap threshold, x 0.5 g at the 16 g range: 2 still missed most second taps through the case
@@ -417,6 +418,7 @@ bool doubleTap() {  // reading TAP_SRC clears the latch, so it is read every loo
   if (!imuOk || imu.readRegister(&v, LSM6DS3_ACC_GYRO_TAP_SRC) || !(v & 0x20)) return false;
   uint32_t t = millis();
   Serial.printf("TAPDBG src=%02X ms=%lu\n", v, t);  // TAPDBG temp
+  if (lastTap && t - lastTap < TAP_GAP_MS) return false;  // the same knock again: keep the first one's time
   if (lastTap && t - lastTap < SHAKE_WAIT_MS) return lastTap = 0, true;  // second single tap in time: double
   lastTap = t;
   return false;
