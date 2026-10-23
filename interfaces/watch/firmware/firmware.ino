@@ -754,6 +754,7 @@ void setup() {
 }
 
 void loop() {
+  Bluefruit.autoConnLed(false);  // no blue LED blinking while advertising: it shows through the case and costs power
   static uint32_t last = millis(), n = 0, t0 = last;
   uint32_t now = millis();
 #ifdef SCENE_PET
