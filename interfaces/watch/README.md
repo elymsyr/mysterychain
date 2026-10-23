@@ -28,7 +28,7 @@ With `cat.h` or `pavi.h` the character lives on its own: stats, moods, day and n
 - **Stats** ([`pet.h`](firmware/pet.h)): fullness, happiness, energy, 0–100, kept on the board only to pick the animations (not shown anywhere). Fullness empties in 10 h (half as fast asleep), happiness in 16 h awake (twice as fast when starving), energy in 16 h awake and refills in 8 h of sleep. Messages and reactions +8 (once a minute), petting +5, 100 steps +1, a game up to +15 and −10 energy. The pet never dies.
 - **Mood**, first that holds: `sleep` (night window or energy < 10), `hungry` (< 25), `sad` (< 25), `tired` (< 25), `happy`. Asleep: curled up with z's / hugging her knees, the fairy dozing on her head. Hungry: by an empty bowl / plate. Sad: lies down / sits with her head down. Tired: yawns. Happy: now and then a butterfly (day) or a mouse / firefly (night) comes by and gets chased; every 10–25 s an idle trick: grooming or a tail chase / a wave, sitting with her feet tapping, or a twirl.
 - **Button:** tap = clock + cheer (after 300 ms); double tap = feed (after 300 ms with `pets.h`); triple tap (`pets.h`) = next character, its name in the bubble (eats from the bowl / an apple, or shakes the head when fullness > 90); hold until the 1 s buzz and release = runner game; hold 3 s = off.
-- **Music screen:** when the phone's track changes (`#music`), the whole background turns into the character's own gradient (cat: peach to plum, Pavi: pink to violet), the title scrolls across the top and the character dances to a 120 bpm beat, notes rising. No buzz. It stays `MUSIC_MS` (12 s) or two scroll loops, up to 15 s; a message, button tap, find or the game ends it, a shake is a hop and back to dancing. Asleep, the pet sleeps on.
+- **Music screen:** while the phone plays music (`#music`), the whole background turns into the character's own gradient (cat: peach to plum, Pavi: pink to violet), the title scrolls across the top and the character dances to a 120 bpm beat, notes rising. No buzz. It stays while the music plays; paused (`#music 0`) the title stays and the dancing stops for `MUSIC_PAUSE_MS` (60 s), then it's gone (also when the link drops). On it the button is a media key: tap = play/pause (`media toggle`), double tap = next track (`media next`); triple tap, hold and the 3 s off work as usual. A message or the clock shows over it for its time, find and the game end it, a shake is a hop and back to dancing. Asleep, the pet sleeps on.
 - **Runner game:** tap = jump over a flower pot, hold = high jump over a fence, stay down under birds (from 20 points). Score and best in the bubble; a new best buzzes 3 times. Each character keeps its own best (the app shows them and resets them). After a game over a press restarts, 10 s idle or a 3 s hold leaves (no power-off inside the game). Not with energy < 15.
 - **Pavi's game** (instead of the runner): the travel road, seen from behind her. Tilt the keychain right / left = right / left lane, level = middle; the button isn't used. One hit and it's over, score = obstacles passed, faster every 5 points. Tilt axis and sign: `TILT_AXIS` / `TILT_SIGN` in `firmware.ino` (check on the device), thresholds `TILT_IN` / `TILT_OUT` in `pavi.h`.
 - **Nausicaa's game** (instead of the runner): an air fight on the Mehve, seen from above, the valley (fields, a river, woods) rolling under her. Tilt sets where she flies along the bottom (level = middle, `TILT_FULL` 0.5 g = the edge); the button fires, held = auto-fire. Every shot heats the gun (bar under her: green, amber, red); full heat jams it, blinking, until it has cooled all the way (~1.4 s). Planes from the top: Pejite gunships (red, weaving, ram you, 1 hit), Tolmekian armored corvettes (four wings, aimed shots, 3 hits, from 5 points), Bumblecrow transports (huge, 3-way spread, 8 hits, from 15 points). A bullet or a crash ends it; a downed plane scores its hits. Her shots end at the bubble's lower edge, so every fight is in view. Tunables at the game section of `nausicaa.h`.
@@ -70,7 +70,7 @@ Tunables at the top of `firmware.ino`:
 | `DARK_WAIT_MS` | 1000 | Screen off: longest sleep between loops (button and IMU wake it sooner) |
 | `BLE_DARK_LATENCY` | 7 | Screen off: 30 ms connection events the radio may skip |
 | `CLOCK_MS` | 3000 | How long a button tap shows the time |
-| `MUSIC_MS` | 12000 | Pets: the music screen stays at least this long after a track change |
+| `MUSIC_PAUSE_MS` | 60000 | Pets: paused music keeps its screen this long, so a tap can resume it |
 | `FIND_MS` | 60000 | Find stops by itself after this long |
 | `GAME_HOLD_MS` | 1000 | Pets: hold and release after this long = game |
 | `TAP_WAIT_MS` | 300 | Pets: a tap waits this long for a second one (double = feed) |
@@ -93,7 +93,7 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `#find` / `#find 0` | Start / stop find |
 | `#heart` | Three pink hearts in the bubble, buzz twice, cheer |
 | `#call <caller>` / `#call 0` | A call rings: caller in the bubble, ring buzz (0.4 s every second) / answered or gone: bubble and buzz stop. Stops by itself after `CALL_MS` (45 s). Sent by the app's background link. |
-| `#music <title - artist>` | The phone's track changed: pets show the [music screen](#pets), other scenes ♫ and the text in the bubble. No buzz. Sent by the app's background link. |
+| `#music <title - artist>` / `#music 0` | A track plays / music paused or stopped: pets show the [music screen](#pets) while it plays, other scenes ♫ and the text in the bubble. No buzz. Sent by the app's background link on every change and on connect. |
 | `#weather clear\|cloudy\|wind\|rain\|snow\|storm` | Pets: the weather for the next hours ([pets](#pets)); anything else (`#weather 0`) = unknown. Not saved; dropped after `WX_MS`. The app sends it on connect and every hour. |
 | `#feed` | Pets: feed (answers `fed` or `full`) |
 | `#stats` | Pets: send `stats` now |
@@ -109,6 +109,7 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `button N` | Button pressed (N counts since boot) |
 | `shake N (x.xx g)` | Shake detected |
 | `found` | Button pressed during find |
+| `media toggle` / `media next` | Pets: button tap / double tap on the music screen; the app plays/pauses or skips the playing session |
 | `find timeout` | Find stopped by itself after `FIND_MS` |
 | `stats <steps> <mood>` | Pets: after `#time`, on `#stats`, after a feed, and once a minute if a value changed |
 | `settings vib=<0\|1> shake=<g> night=<from>-<to> scene=<look> name=<cat>\|<pavi>\|<nausicaa>` | Pets: after `#time` and every `#set`; one name per look in `pets.h` order (a single-scene build sends one) |

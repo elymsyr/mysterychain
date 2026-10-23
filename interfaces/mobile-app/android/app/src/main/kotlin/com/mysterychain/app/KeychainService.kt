@@ -301,6 +301,7 @@ class KeychainService : Service() {
             main.post {
                 for (t in lines) {
                     if (t.startsWith("stats ") || t.startsWith("settings ")) kept[t.substringBefore(' ')] = t
+                    if (t.startsWith("media ")) Bridge.live?.media(t.substring(6)) // the board's button on its music screen
                     sink?.success(mapOf("line" to t))
                 }
             }

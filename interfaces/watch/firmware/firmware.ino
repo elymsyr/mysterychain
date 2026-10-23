@@ -8,7 +8,8 @@
 // Button held 3 s: off. Hold ~1 s to turn on again; plugging in USB also turns it on.
 // pets.h holds the five pets, the cat, Pavi, Nausicaa, Gandalf and Sauron; the phone picks the look (#set scene). The pets (SCENE_PET): stats saved in flash, double tap = feed, triple tap = next look, hold 1-3 s = the look's game,
 // double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
-// screen when the phone's track changes (the character travels, the title scrolls over the sky).
+// screen while the phone plays music (the character travels, the title scrolls over the sky; tap = play/pause, double tap =
+// next track).
 // No motion and no button for IDLE_OFF_MS: the screen goes dark (display cut by Q2); a shake or the button wakes it.
 // Motion is tied to real time: speed stays the same if fps drops. Serial monitor prints fps once a second.
 #include <Adafruit_TinyUSB.h>  // for Serial
@@ -35,7 +36,7 @@ const uint32_t IDLE_OFF_MS = 60000;  // screen off after this long without movem
 const uint32_t DARK_WAIT_MS = 1000;  // screen off: the board sleeps this long between loops; button and IMU wake it at once
 const uint16_t BLE_DARK_LATENCY = 7; // screen off: the radio may skip this many 30 ms connection events (data to send still goes at once)
 const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
-const uint32_t MUSIC_MS = 12000;     // pet scenes: the music screen stays at least this long after a track change
+const uint32_t MUSIC_PAUSE_MS = 60000;  // pet scenes: paused music keeps its screen this long, so a tap can resume it
 // Pet scene only:
 const uint32_t GAME_HOLD_MS = 1000;  // hold the button this long and release: runner game (a buzz says "release now")
 const uint32_t TAP_WAIT_MS = 300;    // a button tap waits this long for another one (double tap = feed, triple = next look)
@@ -86,7 +87,9 @@ int hourNow() { return syncLocal ? localNow() / 3600 % 24 : -1; }
 char msg[64];
 uint8_t msgColor;
 int8_t msgIcon = -1;  // the clock's weather icon (pet::Wx), -1 = none
-bool msgMusic;  // msg is a track title: pet scenes show it on the music screen
+char track[64];      // pets: the phone's track ("" = none), shown on the music screen
+bool playing;        // ... and whether it plays; paused, the screen stays MUSIC_PAUSE_MS
+uint32_t trackT0, pausedT;
 uint32_t msgT0, msgDur, buzzT0, buzzN, buzzOn = 120, buzzPer = 240;  // vibration: buzzN pulses, buzzOn ms on every buzzPer ms
 
 void buzz(uint32_t pulses, uint32_t on = 120, uint32_t per = 240) {  // find has its own pattern and always buzzes
@@ -99,7 +102,7 @@ void buzz(uint32_t pulses, uint32_t on = 120, uint32_t per = 240) {  // find has
 void show(uint32_t pulses, uint8_t color = scene::INK, bool react = true) {  // show msg in the bubble, buzz, the character cheers
   msgT0 = millis();
   msgDur = constrain(2 * (strlen(msg) * 6 + 20) * 40, 4000, 15000);  // scrolling text loops at least twice
-  msgColor = color, msgMusic = false, msgIcon = -1;
+  msgColor = color, msgIcon = -1;
   buzz(pulses);
   if (react) scene::cheer();
   Serial.printf("screen: %s\n", msg);
@@ -113,7 +116,7 @@ void tell(const char *s) {  // to the serial monitor and, if connected, the phon
 void showClock() {
   uint32_t t = localNow();
   snprintf(msg, sizeof msg, "%02lu:%02lu", t / 3600 % 24, t / 60 % 60);
-  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK, msgMusic = false, msgIcon = -1;
+  msgT0 = millis(), msgDur = CLOCK_MS, msgColor = scene::INK, msgIcon = -1;
 #ifdef SCENE_PET
   if (wxKnown) msgIcon = pet::wx;
 #endif
@@ -329,13 +332,20 @@ void feed() {  // double tap on the button or #feed
   sendStats(true);
 }
 
+bool musicScreen(uint32_t now) {  // playing, or paused a short while: the title and media keys on the button
+  return track[0] && (playing || now - pausedT < MUSIC_PAUSE_MS) && !finding && !scene::game.on;
+}
+
 #ifdef SCENE_PICK
 const uint8_t MAX_TAPS = 3;
 #else
 const uint8_t MAX_TAPS = 2;  // no look to switch: a double tap feeds at once
 #endif
 void tapAction(uint8_t n) {  // a run of short button presses, once it's over
-  if (n == 1) {
+  if (n <= 2 && musicScreen(millis())) {  // music: tap = play/pause, double tap = next track (the phone does it)
+    tell(n == 1 ? "media toggle\n" : "media next\n");
+    scene::cheer();
+  } else if (n == 1) {
     batT = millis();
     if (syncLocal) showClock();
     scene::cheer();
@@ -463,7 +473,7 @@ void bleDark(bool dark) {  // dark: slave latency, the radio wakes ~every 240 ms
 //   #find  /  #find 0                 start / stop find
 //   #heart                            hearts in the bubble
 //   #call <caller>  /  #call 0        a call rings: name in the bubble + ring buzz / answered or gone
-//   #music <title - artist>           the phone's track changed: quiet; pet scenes: music screen, else the bubble
+//   #music <title - artist>  /  #music 0   playing / paused or stopped: quiet; pet scenes: music screen, else the bubble
 //   pet scene: #feed, #stats, #weather <kind>, #set vib|shake|night|name <look>|scene ...  (interfaces/watch/README.md#protocol)
 // Plain text, and anything else starting with '#', shows in the bubble.
 void receive(uint8_t *rx, int n) {
@@ -502,12 +512,18 @@ void receive(uint8_t *rx, int n) {
     show(0);
     msgDur = CALL_MS;
     buzz(CALL_MS / 1000, 400, 1000);  // ring: 0.4 s every second
+  } else if (!strcmp(s, "#music 0")) {
+    if (playing) playing = false, pausedT = millis();
   } else if (!strncmp(s, "#music ", 7)) {
-    strcpy(msg, "\x0E ");  // font glyph 14 is a music note (13 would be eaten as '\r')
-    toAscii(rx + 7, n - 7, msg + 2, sizeof msg - 2);
-    show(0, scene::INK, false);
+    char t[sizeof track];
+    strcpy(t, "\x0E ");  // font glyph 14 is a music note (13 would be eaten as '\r')
+    toAscii(rx + 7, n - 7, t + 2, sizeof t - 2);
 #ifdef SCENE_PET
-    msgMusic = true, msgDur = max(msgDur, MUSIC_MS);
+    if (strcmp(t, track)) strcpy(track, t), trackT0 = millis();  // a resume keeps the scroll going
+    playing = true;
+#else
+    strcpy(msg, t);
+    show(0, scene::INK, false);
 #endif
 #ifdef SCENE_PET
   } else if (!strcmp(s, "#feed")) {
@@ -575,23 +591,15 @@ void marquee(const char *s, uint32_t t0, uint32_t now) {
   gfx.clipL = 0, gfx.clipR = scene::N;
 }
 
-bool musicScreen(uint32_t now) {
-#ifdef SCENE_PET
-  return msgMusic && msg[0] && now - msgT0 <= msgDur && !finding && !scene::game.on;
-#else
-  return false;
-#endif
-}
-
 void drawBubble(uint32_t now) {
-  if (musicScreen(now)) return marquee(msg, msgT0, now);
 #ifdef SCENE_PET
   int y = scene::game.on ? scene::game.labelY : 11;
 #else
   int y = 11;
 #endif
-  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now, y, msgIcon);
+  if (msg[0] && now - msgT0 <= msgDur) return bubble(msg, msgColor, msgT0, now, y, msgIcon);  // a message, then the music again
 #ifdef SCENE_PET
+  if (musicScreen(now)) return marquee(track, trackT0, now);
   if (scene::game.on) {  // a message covers the score for its time, the game goes on
     char g[24];
     scene::gameLabel(g, sizeof g);
@@ -774,7 +782,7 @@ void loop() {
   static uint32_t last = millis(), n = 0, t0 = last;
   uint32_t now = millis();
 #ifdef SCENE_PET
-  scene::music(musicScreen(now));
+  scene::music(playing && musicScreen(now));  // paused: the title stays, the dancing stops
 #endif
   if (dispOn) scene::step(min(now - last, 50UL) / 1000.0f);  // dark: nothing to animate
   last = now;
@@ -801,6 +809,7 @@ void loop() {
     wasConn = !wasConn;
     strcpy(msg, wasConn ? "connected" : "disconnected");
     if (wasConn && !dispOn) bleDark(true);
+    if (!wasConn && playing) playing = false, pausedT = now;  // the phone can't say it stopped any more
     show(1);
   }
 

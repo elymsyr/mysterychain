@@ -24,9 +24,9 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | A4 | Clock sync | **Done.** The phone sends the time on connect; the board keeps time and corrects on each connection. A button tap shows it. | O1 |
 | A5 | Weather | **Coded 2026-10-19, not yet tested on hardware.** The phone pulls the next 4 hours from open-meteo (free, no key) for its coarse location, on every connect and hourly, and sends the worst hour as one of clear / cloudy / wind / rain / snow / storm (`#weather`). The scene and the pet follow it (cat: shades in the sun, an umbrella in the rain, pawing at snowflakes; Pavi: a water dome over her, catching flakes; Nausicaa: a big leaf for an umbrella, Teto playing in the snow; all: blown leaves, startled by thunder); a button tap shows its icon next to the clock ([pets](../interfaces/watch/README.md#pets)). | O1, O3, A4, K6 |
 | A6 | Quick reactions | **Done.** One-tap messages in the app (heart, "on my way", "where are you"). Bubble on the board, the pet reacts. | O1 |
-| A7 | Camera shutter / music control | The button acts as a media key (BLE HID): take a photo, play/pause, next track. | O4, decision 2 |
+| A7 | Camera shutter / music control | **Music coded 2026-10-23, not yet tested on hardware:** on the music screen tap = play/pause, double tap = next track. No HID: the board sends `media toggle` / `media next`, the app drives the playing session (`Bridge.kt`). Camera shutter still open (needs HID, decision 2). | O4, A9 |
 | A8 | Over-the-air update | Flash firmware over BLE (Bluefruit `BLEDfu`) instead of USB. Must work before the case is closed; needs testing with the XIAO bootloader. | — |
-| A9 | Now playing | **Coded.** When the phone's track changes, the pets switch to a music screen (character-colored backdrop, scrolling title, the pet dances); other scenes use the bubble. No buzz. Any player with a media notification. | O1, O3 |
+| A9 | Now playing | **Coded.** While the phone plays music (2026-10-23: the whole time, not 12 s per track), the pets show a music screen (character-colored backdrop, scrolling title, the pet dances); other scenes use the bubble. No buzz. Any player with a media notification. | O1, O3 |
 
 ### Pet
 
@@ -59,7 +59,7 @@ IDs are used for cross-references: **A** = phone ↔ keychain, **K** = pet, **S*
 | O1 | Message protocol | **Done:** `#command args`, anything else goes to the bubble ([protocol](../interfaces/watch/README.md#protocol)). New commands are added there. | A2–A6, S1 |
 | O2 | Persistent storage | **Coded:** settings and pet stats survive power-off (internal flash, LittleFS file `/pet`). | K1, S1 |
 | O3 | App in the background | **Coded:** one foreground service (`KeychainService.kt`) holds the only BLE link, paired through CompanionDeviceManager (background start allowed, woken when the board is in range). A notification listener (`Bridge.kt`) feeds it calls and music. Sends `#time` and the weather (`Weather.kt`, A5) on every connect. | A2, A5, A9, A4 repeats |
-| O4 | Sharing the one button | Gestures (cat): tap = clock, double tap = feed, hold 1–3 s = game, hold 3 s = off, any press stops find. Shutter/music (A7) still open. | K2, K7, A7, A3 |
+| O4 | Sharing the one button | Gestures (cat): tap = clock, double tap = feed, hold 1–3 s = game, hold 3 s = off, any press stops find. On the music screen: tap = play/pause, double tap = next track (A7). Shutter still open. | K2, K7, A7, A3 |
 
 ## Suggested order
 
@@ -83,7 +83,7 @@ flowchart TD
 | # | Topic | Options / notes | Decide by |
 | --- | --- | --- | --- |
 | 1 | Sharing the button (O4) | **Decided:** gestures (tap, double tap, hold 1–3 s, hold 3 s). | Done |
-| 2 | HID pairing (A7) | Shutter and media keys need bonding, which changes today's "connect from the app, no pairing" flow. Always on, or a setting? | Phase 4 |
+| 2 | HID pairing (A7) | Only the camera shutter now (media keys go through the app). It needs bonding, which changes today's "connect from the app, no pairing" flow. Always on, or a setting? | Phase 4 |
 | 3 | Mini game (K7) | **Decided:** one-button runner, tap / hold for two jump heights. | Done |
 | 4 | Stats hit zero (K1) | **Decided:** the pet never dies, it just looks hungry, sad or sleepy. | Done |
 | 5 | Feeding source (K2) | **Decided:** button and app. | Done |

@@ -12,9 +12,10 @@ import android.service.notification.StatusBarNotification
 // Calls and the playing song for the keychain (O3). A notification listener: Android keeps it bound, app open or not,
 // once the user allows Notification access. It hands the keychain link (KeychainService.kt):
 //   #call <caller> while a call rings, #call 0 once it is answered or gone (read from the dialer's call notification)
-//   #music <title - artist> when the playing track changes
+//   #music <title - artist> while a track plays, #music 0 once it pauses or stops
 //     (read from the player's media session: always there, unlike its notification's text)
-// and replays the ringing call and the playing song whenever the link connects.
+// and replays the ringing call and the music whenever the link connects. The board's "media toggle" / "media next"
+// (button on its music screen) go to that session.
 class Bridge : NotificationListenerService() {
     companion object {
         @Volatile var live: Bridge? = null // bound by Android; MainActivity rebinds it when it isn't
@@ -22,12 +23,13 @@ class Bridge : NotificationListenerService() {
 
     private var callKey: String? = null // the ringing call's notification
     private var caller = ""
-    private var track = ""
+    private var music = "#music 0" // the last music line sent
     private var player: MediaController? = null // the session whose track goes to the board
     private val sessions by lazy { getSystemService(MediaSessionManager::class.java) }
     private val me by lazy { ComponentName(this, Bridge::class.java) } // a listener may read media sessions
     private val playerCb = object : MediaController.Callback() {
-        override fun onMetadataChanged(m: MediaMetadata?) = music(m)
+        override fun onMetadataChanged(m: MediaMetadata?) = music()
+        override fun onPlaybackStateChanged(s: PlaybackState?) = music()
     }
     private val sessionsCb = MediaSessionManager.OnActiveSessionsChangedListener { follow(it) }
 
@@ -75,26 +77,43 @@ class Bridge : NotificationListenerService() {
         val c = list?.firstOrNull()
         if (c?.sessionToken == player?.sessionToken) return
         player?.unregisterCallback(playerCb)
-        player = c?.also {
-            it.registerCallback(playerCb)
-            music(it.metadata)
+        player = c?.also { it.registerCallback(playerCb) }
+        music()
+    }
+
+    private fun playing() = when (player?.playbackState?.state) { // between tracks it buffers or skips: still playing
+        PlaybackState.STATE_PLAYING, PlaybackState.STATE_BUFFERING, PlaybackState.STATE_CONNECTING,
+        PlaybackState.STATE_SKIPPING_TO_NEXT, PlaybackState.STATE_SKIPPING_TO_PREVIOUS -> true
+        else -> false
+    }
+
+    private fun music() {
+        val m = player?.metadata
+        val title = m?.getString(MediaMetadata.METADATA_KEY_TITLE)?.trim()
+        val artist = m?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.trim()
+        val line = when {
+            title.isNullOrEmpty() -> if (playing()) return else "#music 0" // a new track's title not in yet: wait for it
+            !playing() -> "#music 0"
+            artist.isNullOrEmpty() -> "#music $title"
+            else -> "#music $title - $artist"
+        }
+        if (line != music) { // metadata and state repeat on seeks and buffering
+            music = line
+            send(line)
         }
     }
 
-    private fun music(m: MediaMetadata?) {
-        val title = m?.getString(MediaMetadata.METADATA_KEY_TITLE)?.trim()
-        if (title.isNullOrEmpty()) return
-        val artist = m.getString(MediaMetadata.METADATA_KEY_ARTIST)?.trim()
-        val t = if (artist.isNullOrEmpty()) title else "$title - $artist"
-        if (t != track) { // metadata repeats on play/pause and seeks
-            track = t
-            send("#music $t")
+    fun media(cmd: String) { // from the board's button
+        val c = player?.transportControls ?: return
+        when (cmd) {
+            "toggle" -> if (playing()) c.pause() else c.play()
+            "next" -> c.skipToNext()
         }
     }
 
     fun replay() { // the link just connected
         if (callKey != null) send("#call $caller")
-        if (track.isNotEmpty() && player?.playbackState?.state == PlaybackState.STATE_PLAYING) send("#music $track")
+        send(music) // #music 0 too: the board may still show a song that stopped while the link was down
     }
 
     // Not connected: dropped, replay() resends what's still current. Link not running: started.

@@ -1017,6 +1017,7 @@ void drawRove() {
     for (int y = hill; y < HZ; y++) fb[y * N + x] = HILL;
     if (tall > 6 && fmodf(u, 4) < 1 && (int)(HZ - tall + 3) < hill) px(x, HZ - tall + 3, LAMP);  // a window
   }
+  const float ripple = fmodf(T * 2, 6.2831853f);  // wrapped: sinf of a big angle (T grows from boot) takes a slow reduction path, per pixel
   for (int y = HZ; y < N; y++) {  // the ground: stripes and the road (or river) rushing at her, haze far off
     float z = FOC / (y - HZ + 0.5f), w = dist + z;
     bool stripe = fmodf(w, 1.6f) < 0.8f;
@@ -1024,7 +1025,7 @@ void drawRove() {
       float wx = camX + (x + 0.5f - 40) * z / FOC, aw = fabsf(wx);
       uint8_t c;
       if (aw < 1.25f) {
-        if (elemAt(w) == WATER) c = fmodf(w * 1.3f + 0.25f * sinf(wx * 5 + T * 2), 1) < 0.2f ? RIVER2 : RIVER;
+        if (elemAt(w) == WATER) c = fmodf(w * 1.3f + 0.25f * sinf(wx * 5 + ripple), 1) < 0.2f ? RIVER2 : RIVER;
         else c = h01(int(w * 3) * 131 + int(floorf(wx * 5))) < 0.18f ? ROAD2 : ROAD;
       } else c = aw < 1.4f ? ROAD2 : stripe ? GRASS : GRASS2;
       float snow = game.on || c == RIVER || c == RIVER2 ? 0 : snowCover * (aw < 1.4f ? 0.5f : 0.9f);  // less on the road
