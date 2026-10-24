@@ -97,6 +97,7 @@ BAT_WIRE = 1.5             # lead bend at the XIAO end
 
 # case
 FIT = 0.25                 # display PCB - case radial clearance
+CASE_FIT = 0.1             # midframe / back cover - housing wall, per side (was 0.2: parts sat loose)
 WALL = 1.8
 BEZEL_T = 0.4              # front lip (3 layers, printed on the bed)
 DECK_T = 1.0
@@ -144,15 +145,19 @@ MOTOR_Y = (TAB_TOP + LUG_IN_TOP) / 2       # on the lug front skin, past the tab
 # snap hooks (back cover <-> front housing)
 # PLA test print: 0.7 x 4 arms with 3.7 free length were too fragile -> thicker, wider, longer (same snap force)
 CATCH_Z0 = COVER_T + 5.2         # catch tip (45° retention ramp, removable)
-CATCH_Z1 = CATCH_Z0 + 1.2        # arm tip (lead-in ramp)
+CATCH_FLAT = 0.6                 # catch flat (was 0.2): the head fills the groove height
+CATCH_Z1 = CATCH_Z0 + CATCH_FLAT + 1.0   # arm tip (lead-in ramp)
 # groove edge sits 0.08 above where the retention ramp crosses the wall (r=RI, cover seated): the hooks
 # preload the cover inward. Old (CATCH_Z0 - 0.9) left 0.52 of axial play (PLA test print: cover loose, sat low).
-GROOVE = (CATCH_Z0 - 0.3, CATCH_Z1 + 0.7)
+# groove top: 0.2 above where the lead-in ramp crosses the wall at the catch's tangential corners
+GROOVE = (CATCH_Z0 - 0.3, CATCH_Z1 - 0.15)
 HOOK_W = 5.0
-HOOK_T = 1.0                      # arm thickness (outer face 0.25 off the wall)
+HOOK_T = 1.2                      # arm thickness (outer face 0.25 off the wall: the flat 5 mm arm's corners on R19.3)
+LUG_HOOK_T = 1.0                  # lug side hooks stay thin: they deflect toward the battery
 HOOK_ANGLES = (20, 160, 230, 310)   # 180 = button height, 270 = USB-C, 315 = passives, 53..127 = lug
 LUG_HOOK_Y = LUG_IN_TOP - 4.0       # 2 more on the lug side walls, beside the battery
-HOOKS = [(RI, a, 0.0) for a in HOOK_ANGLES] + [(TAB_HALF, a, LUG_HOOK_Y) for a in (0, 180)]  # (wall, angle, y)
+HOOKS = ([(RI, a, 0.0, HOOK_T) for a in HOOK_ANGLES]
+         + [(TAB_HALF, a, LUG_HOOK_Y, LUG_HOOK_T) for a in (0, 180)])  # (wall, angle, y, arm thickness)
 GROOVE_R = RI + 0.7               # >=0.2 clearance including outer corners
 
 
@@ -231,8 +236,8 @@ def make_front_housing():
 
 # ---------------------------------------------------------------- midframe
 def make_midframe():
-    th = TAB_HALF - 0.2
-    deck = zcyl(0, 0, RI - 0.2, Z_DB, Z_DF).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, Z_DB, Z_DF))   # lug keys rotation
+    th = TAB_HALF - CASE_FIT
+    deck = zcyl(0, 0, RI - CASE_FIT, Z_DB, Z_DF).fuse(zbox(-th, th, 0, LUG_IN_TOP - CASE_FIT, Z_DB, Z_DF))   # lug keys rotation
     # display clamp legs (press on the PCB edge ring, clear of the battery)
     adds = [zcyl(*polar(17.6, a), 1.2, Z_DF - 0.1, z(D_PCB_BACK) - LEG_SHORT) for a in (40, 140, 205, 335)]
     # XIAO: tape pad on the shield + stop rib at the antenna end
@@ -265,22 +270,22 @@ def make_midframe():
     cuts += [zcyl(s * XIAO_PIN_X, XIAO_PIN_Y0 + 2.54 * i, PIN_HOLE_D / 2, Z_DB - 1, Z_DF + 10)
              for s in (-1, 1) for i in range(XIAO_PIN_N)]
     # hook arms pass the midframe edge (keeps arm length)
-    cuts += [Pos(0, dy, 0) * sector_box(r - 1.4, r + 0.5, HOOK_W + 0.8, Z_DB - 1, Z_DF + 1, a) for r, a, dy in HOOKS]
+    cuts += [Pos(0, dy, 0) * sector_box(r - 0.25 - t - 0.2, r + 0.5, HOOK_W + 0.4, Z_DB - 1, Z_DF + 1, a) for r, a, dy, t in HOOKS]
     return deck.cut(*cuts).clean()
 
 
 # ---------------------------------------------------------------- back cover
 def make_back_cover():
-    th = TAB_HALF - 0.2
+    th = TAB_HALF - CASE_FIT
     # flat cover, same outline as the deck (which lies directly on it)
-    cover = Cylinder(RI - 0.2, COVER_T, align=MIN).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, 0, COVER_T))
+    cover = Cylinder(RI - CASE_FIT, COVER_T, align=MIN).fuse(zbox(-th, th, 0, LUG_IN_TOP - CASE_FIT, 0, COVER_T))
     adds = []
-    for r_wall, a, dy in HOOKS:
+    for r_wall, a, dy, t in HOOKS:
         r_out = r_wall - 0.25
-        adds.append(Pos(0, dy, 0) * sector_box(r_out - HOOK_T, r_out, HOOK_W, COVER_T - 0.1, CATCH_Z1, a))
+        adds.append(Pos(0, dy, 0) * sector_box(r_out - t, r_out, HOOK_W, COVER_T - 0.1, CATCH_Z1, a))
         profile = Plane.XZ * Polygon(
             (r_wall - 0.45, CATCH_Z0 - 0.8), (r_wall + 0.4, CATCH_Z0),
-            (r_wall + 0.4, CATCH_Z0 + 0.2), (r_wall - 0.45, CATCH_Z1), align=None)
+            (r_wall + 0.4, CATCH_Z0 + CATCH_FLAT), (r_wall - 0.45, CATCH_Z1), align=None)
         adds.append(Pos(0, dy, 0) * Rot(0, 0, a) * extrude(profile, amount=HOOK_W / 2, both=True))
     return cover.fuse(*adds).cut(battery_switch_slot(-1, COVER_T + 1)).clean()
 

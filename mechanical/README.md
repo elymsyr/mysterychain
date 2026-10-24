@@ -66,12 +66,12 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 - **XIAO pocket in the wall:** the XIAO's USB end is sunk into the wall (PCB corners reach the hook groove radius): PCB outline + 0.35 all round (`XIAO_FIT`), z = 4.7–7.2, so the PCB corners aren't squeezed. 0.68 of wall stays outside the corners.
 - **Button (−X):** 3.6 × 2.0 hole and a Ø6.4 finger dimple; the plunger sticks out ~0.3 from the dimple floor but stays ~0.3 below the outer surface. It's also the power button (hold ~1 s = on), so a flat surface in a pocket can't hold it down.
 - **Keyring slot** 10 × 3, oval, through the lug end. Bridge 2.4, web 1.2.
-- Hook groove on the inner wall (R20.0, z = 6.1–8.3; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.3–36.9).
+- Hook groove on the inner wall (R20.0, z = 6.1–7.85; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.3–36.9).
 - Pry notch at 230° on the back edge, 5 mm wide.
 
-**Midframe** (38.2 × 55.9 × 7.3)
+**Midframe** (38.4 × 57.2 × 7.3)
 
-- 1.0 plate: Ø38.2 disc + lug plate 22.96 wide, 0.2 clearance to the walls. The lug plate fixes the orientation (no key tabs).
+- 1.0 plate: Ø38.4 disc + lug plate 23.16 wide, 0.1 clearance to the walls (`CASE_FIT`). The lug plate fixes the orientation (no key tabs).
 - **Display clamp legs:** Ø2.4 at r = 17.6, at 40°/140°/205°/335° (clear of the battery). They stop 1.5 short of the display PCB (`LEG_SHORT`, PLA print: too long); tape on the leg tips takes up the gap. The LCD floats.
 - **XIAO:** two **pin rails** (x = ±6.75 … ±9.3, under both pin rows) with 7 + 7 Ø1.2 holes through rail and plate (pins ~0.55 square). The XIAO's header pins (spacer removed, cut 4.3 behind the PCB) go into them and carry the USB-C plug/unplug force. Rail tops stay 0.5 below the PCB for the pins' solder fillets. Plus the 8 × 8 tape pad (0.5 gap to the shield, 0.5 mm tape) and a 12 mm stop rib at the antenna end.
 - **Battery side ribs** on the front face: 0.8 thick, 2 high, at x = ±10.5, y = 9.1–30.6. End stops: the XIAO stop rib side (3.5 lead bend space since v7.4) and the lug end wall.
@@ -80,13 +80,13 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 - **Reset hole** Ø2.0 over the XIAO reset button, 3.8 from the midframe back face to the button. Cover off, a SIM pin presses it: bootloader (double press), or a reset while USB is in.
 - Notches where the cover hooks pass.
 
-**Back cover** (38.7 × 57.0 × 7.6)
+**Back cover** (38.7 × 57.2 × 8.0)
 
 - Flat 1.2 plate, same outline as the midframe (which lies directly on it).
 - **Battery switch slot** 3.4 × 1.4 (lower right, seen from the back). The actuator tip is 0.2 below the cover face: a toothpick or SIM pin moves it, a piece of tape over the slot can't. Keep 3–4 mm of flat plate around it for the tape.
 - **Perimeter hooks:** 4 at **20° / 160° / 230° / 310°**, 5 mm wide. 180° is at the button height, 270° at the USB-C, 315° the passives.
 - **Lug hooks:** 2 on the lug side walls at y = 34.1, 5 mm wide, 0.43 beside the battery.
-- Hook arm 1.0 thick, ~5.2 free length, 0.4 radial catch, 45° retention ramp (the cover can be removed).
+- Hook arm 1.2 thick (lug hooks 1.0: they flex toward the battery), ~5.2 free length, 0.4 radial catch with a 0.6 flat (the head fills the groove, ~0.2 to its top edge), 45° retention ramp (the cover can be removed).
 
 ## Component placement
 
@@ -112,13 +112,13 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 | Front lip over the glass edge | 0.3 radial |
 | Display PCB ↔ XIAO | 3.00 net |
 | XIAO components ↔ midframe | 0.30 |
-| Midframe and cover ↔ wall | 0.20 |
+| Midframe and cover ↔ wall | 0.10 |
 | Battery (sides / swelling) | 0.5 / 0.5, then 0.76 to the tab wire zone |
 | Motor ↔ display tab tip | ~0.9 |
 | USB-C shell ↔ wall hole / XIAO PCB ↔ wall pocket | 0.35 / 0.35 |
 | Button hole | ~0.2–0.3 |
 
-If the hooks are too tight or too loose, move the groove in 0.1 mm steps (`CATCH_Z0`, `GROOVE`). XIAO pins too tight / loose in the rails: `PIN_HOLE_D` in 0.05 steps. Display loose / cover won't close: `LEG_SHORT`. USB-C hole tight: `USB_FIT`; XIAO end pinched in the wall: `XIAO_FIT`.
+If the hooks are too tight or too loose, move the groove in 0.1 mm steps (`CATCH_Z0`, `GROOVE`). XIAO pins too tight / loose in the rails: `PIN_HOLE_D` in 0.05 steps. Display loose / cover won't close: `LEG_SHORT`. USB-C hole tight: `USB_FIT`; XIAO end pinched in the wall: `XIAO_FIT`. Midframe / cover won't go in: `CASE_FIT`.
 
 ## Assembly
 
@@ -202,3 +202,4 @@ Expected interference: battery inside its safe zone, display tab resting on the 
 | v7.3 | PLA test-fit fixes: hook arms 0.7 × 4 → 1.0 × 5, catch + groove 1.5 toward the front (longer arm, same snap force, ~2.5× stronger root); display legs 1.5 shorter; XIAO pin holes Ø0.9 → Ø1.2; motor ring wire gap −Y → +X. |
 | v7.4 | TPU USB plug dropped (with its +X slot/recess, the cover relief and the midframe cut-out). USB-C pocket 13 × 7 → port-shaped hole 9.34 × 3.61. XIAO 2.0 toward the USB wall (face −18.2 → −20.2, 0.9 behind the outer surface), its USB end in a 0.25 wall pocket; battery and lug unchanged. |
 | v7.5 | Second PLA print (thick nozzle): the XIAO's USB-C shell didn't go into the wall hole. `USB_FIT` 0.2 → 0.35 (hole 9.64 × 3.91), `XIAO_FIT` 0.25 → 0.35. |
+| v7.6 | Tighter fit: midframe and cover ↔ wall 0.2 → 0.1 (`CASE_FIT`), midframe hook notches 0.4 → 0.2 per side. Perimeter hook arms 1.0 → 1.2 thick; catch flat 0.2 → 0.6 and groove top 8.3 → 7.85, so the head fills the groove. |

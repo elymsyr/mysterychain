@@ -478,8 +478,8 @@ def sheet_front_housing(doc, idx, n):
 def sheet_midframe(doc, idx, n):
     sh = Sheet(doc, idx)
     part = pc.make_midframe()
-    RD = RI - 0.2
-    th, LIT = pc.TAB_HALF - 0.2, pc.LUG_IN_TOP - 0.2
+    RD = RI - pc.CASE_FIT
+    th, LIT = pc.TAB_HALF - pc.CASE_FIT, pc.LUG_IN_TOP - pc.CASE_FIT
     zf, zb = pc.Z_DF, pc.Z_DB
     z_top = pc.z(pc.D_PCB_BACK) - pc.LEG_SHORT
     pad_y0 = pc.XIAO_ORIGIN[1] - 4.05
@@ -554,8 +554,8 @@ def sheet_midframe(doc, idx, n):
 def sheet_back_cover(doc, idx, n):
     sh = Sheet(doc, idx)
     part = pc.make_back_cover()
-    RD = RI - 0.2
-    th, LIT = pc.TAB_HALF - 0.2, pc.LUG_IN_TOP - 0.2
+    RD = RI - pc.CASE_FIT
+    th, LIT = pc.TAB_HALF - pc.CASE_FIT, pc.LUG_IN_TOP - pc.CASE_FIT
     T, c0, c1 = pc.COVER_T, pc.CATCH_Z0, pc.CATCH_Z1
     ly = pc.LUG_HOOK_Y
     a = pc.HOOK_ANGLES[0]                  # section B-B / detail E go through this hook
