@@ -10,16 +10,15 @@ Layers (front to back):
 
 Assembly order (all from the back): display (tab into the lug pocket) -> motor (adhesive, ring on the lug skin) ->
 button -> midframe (+XIAO, battery) -> back cover (4 perimeter + 2 lug side hooks).
-USB plug (TPU, usb_plug.step.py) last, from outside.
 
 Load paths:
   - Display: back cover -> midframe deck -> midframe legs -> display PCB -> housing step (LCD floats).
-  - USB insertion: plug pushes the XIAO to +Y -> midframe stop rib.
+  - USB insertion: the cable plug pushes the XIAO to +Y -> header pins + midframe stop rib.
   - Button press: button body -> midframe backer block.
   - Keyring: slot + bridge at the lug end, one piece with the body (not through the cover / PCB).
 
-Splash (IPX4 goal): round screen protector bonded on the flat front face over the window,
-TPU plug in the USB pocket, its barb seals the old switch slot; power on/off in firmware.
+Splash: round screen protector bonded on the flat front face over the window. The USB-C port sits in a
+port-shaped hole in the wall (open); power on/off in firmware.
 Battery switch (EG1390) lies on the midframe, its actuator reached from the back through a slot in the
 midframe + cover (tip 0.2 below the cover face); a piece of tape over the slot seals it.
 """
@@ -29,11 +28,10 @@ from pathlib import Path
 
 from build123d import (
     Align, Box, Circle, Compound, Cone, Cylinder, Kind, Location, Plane, Polygon, Pos, Rectangle, RectangleRounded,
-    Rot, extrude, offset,
+    Rot, SlotOverall, extrude, offset,
 )
 from cadgen import srgb
 from cadgen.assembly import AssemblyHelper
-from cadgen.sources import load_source_module
 from cadgen.step_scene import import_step
 
 HERE = Path(__file__).resolve().parent
@@ -65,18 +63,23 @@ XIAO_USB_FACE_X = 13.81                   # STEP-local USB-C front face
 XIAO_TOP_Y = 4.21                         # STEP-local highest point (USB-C)
 XIAO_SHIELD_Y = 3.0
 XIAO_PCB_T = 1.0                          # STEP: PCB back z = origin - 1.0
-XIAO_USB_CY = 2.11                        # USB-C height center
-USB_FACE_Y = -18.2                        # USB-C front face in the assembly (world Y)
+XIAO_USB_CY = 2.605                       # USB-C shell height center below the origin (shell: PCB back -3.21..0)
+XIAO_PCB_R = 1.905                        # PCB corner radius
+# USB-C front face in the assembly (world Y): 0.9 behind the outer wall at x=0; the PCB corners reach into
+# the hook groove radius (0.78 of wall left outside their pocket)
+USB_FACE_Y = -20.2
+USB_FIT = 0.2            # port-shaped hole around the USB-C shell (8.94 x 3.21), per side
+XIAO_FIT = 0.25          # wall pocket around the XIAO's USB end: the PCB corners must not be squeezed
 XIAO_RST_X, XIAO_RST_DY = -5.7, 3.4       # reset button (Seeed STEP): world X, distance from the USB-C face
 # header pins (spacer removed, cut short) stuck into the midframe pin rails: they carry the USB-C plug force
-XIAO_PIN_X, XIAO_PIN_Y0, XIAO_PIN_N = 7.62, -13.75, 7   # world, rows at +-X, pitch 2.54 toward +Y
-PIN_HOLE_D = 0.9         # 0.64 square pin (diag 0.905): prints ~0.8 -> pin presses in. Tune after the first print.
+XIAO_PIN_X, XIAO_PIN_Y0, XIAO_PIN_N = 7.62, USB_FACE_Y + 4.45, 7   # world, rows at +-X, pitch 2.54 toward +Y
+PIN_HOLE_D = 1.2         # ~0.55 square pin (diag 0.78). PLA test print: Ø0.9 printed too small, pins didn't go in at all.
 PIN_RAIL_X = (6.75, 9.3)  # inner edge clears the reset hole + a part near the USB end; outer < passives (9.5)
 PIN_RAIL_GAP = 0.5       # rail top <-> XIAO PCB back: room for the pins' solder fillets
 
 MOTOR_D, MOTOR_T = 10.0, 3.0
+MOTOR_WIRE_SIDE = 1      # ring wire gap: +1 = +X (right, seen from the front), -1 = -X
 
-# old EG1390 slide switch opening (+X): switch removed, on/off in firmware; slot + recess anchor the USB plug
 SW_ACT_W, SW_TRAVEL = 1.5, 1.5
 # battery switch: EG1390 (desoldered from the LilyPad board), lying flat on the midframe, actuator -Z
 SW_BODY = (3.5, 7.0, 1.5)             # x, y (slide direction), z; 7.0 measured
@@ -99,6 +102,7 @@ BEZEL_T = 0.4              # front lip (3 layers, printed on the bed)
 DECK_T = 1.0
 COVER_T = 1.2
 KEY_WEB, KEY_SLOT_W, KEY_SLOT_L, KEY_BAR = 1.2, 3.0, 10.0, 2.4   # tab pocket | slot | bridge
+LEG_SHORT = 1.5            # display clamp legs end this far behind the PCB (PLA test print: too long). Fill with tape.
 
 # ---------------------------------------------------------------- derived
 RI = DISP_PCB_D / 2 + FIT
@@ -107,7 +111,7 @@ D_PCB_FRONT = BEZEL_T + GLASS_GAP + LCD_STACK          # display PCB sits on the
 D_PCB_BACK = D_PCB_FRONT + DISP_PCB_T
 D_XIAO_BOT = D_PCB_BACK + DISP_REAR
 D_DECK_FRONT = D_XIAO_BOT + XIAO_TOP_Y + 0.3
-D_DECK_BACK = D_DECK_FRONT + DECK_T     # deck depth is set by the USB-C plug overmold (6.5), not the battery
+D_DECK_BACK = D_DECK_FRONT + DECK_T     # deck depth is set by the XIAO + USB-C, not the battery
 D_COVER_FRONT = D_DECK_BACK
 H = D_COVER_FRONT + COVER_T
 # battery lies on the deck; its swell must stay clear of the tab pads + wires
@@ -119,7 +123,7 @@ def z(d):
 
 
 Z_DF, Z_DB = z(D_DECK_FRONT), z(D_DECK_BACK)
-Z_MID = z((D_XIAO_BOT + D_DECK_FRONT) / 2)      # button / plug anchor height center
+Z_MID = z((D_XIAO_BOT + D_DECK_FRONT) / 2)      # button height center
 TAB_HALF = TAB_W / 2 + FIT
 TAB_TOP = MODULE_L - DISP_PCB_D / 2 + FIT
 
@@ -129,23 +133,24 @@ XIAO_PCB_TOP_Y = XIAO_ORIGIN[1] + 8.67     # antenna end (STEP-local x min = -8.
 Z_USB = XIAO_ORIGIN[2] - XIAO_USB_CY
 
 # battery: past the XIAO stop rib, long side up into the lug; the lug is full depth and ends behind it
-BAT_Y0 = XIAO_PCB_TOP_Y + 1.3 + BAT_GAP + BAT_WIRE
+# (fixed at the v7.3 spot: the XIAO moved 2.0 toward the USB wall in v7.4, battery + lug stay; the lead bend gains 2.0)
+BAT_Y0 = 7.58
+assert BAT_Y0 >= XIAO_PCB_TOP_Y + 1.3 + BAT_GAP + BAT_WIRE
 LUG_IN_TOP = BAT_Y0 + BAT_L + BAT_GAP
 KEY_SLOT_CY = LUG_IN_TOP + KEY_WEB + KEY_SLOT_W / 2
 LUG_HALF, LUG_TOP = TAB_HALF + WALL, LUG_IN_TOP + KEY_WEB + KEY_SLOT_W + KEY_BAR
 MOTOR_Y = (TAB_TOP + LUG_IN_TOP) / 2       # on the lug front skin, past the tab tip, in front of the battery
 
-# USB-C plug overmold (USB-IF max 12.35 x 6.5) + clearance; pocket floor = receptacle face -> plug seats fully
-USB_POCKET_W, USB_POCKET_H = 13.0, 7.0
-
 # snap hooks (back cover <-> front housing)
-CATCH_Z0 = COVER_T + 3.7         # catch tip (45° retention ramp, removable)
+# PLA test print: 0.7 x 4 arms with 3.7 free length were too fragile -> thicker, wider, longer (same snap force)
+CATCH_Z0 = COVER_T + 5.2         # catch tip (45° retention ramp, removable)
 CATCH_Z1 = CATCH_Z0 + 1.2        # arm tip (lead-in ramp)
 # groove edge sits 0.08 above where the retention ramp crosses the wall (r=RI, cover seated): the hooks
 # preload the cover inward. Old (CATCH_Z0 - 0.9) left 0.52 of axial play (PLA test print: cover loose, sat low).
 GROOVE = (CATCH_Z0 - 0.3, CATCH_Z1 + 0.7)
-HOOK_W = 4.0
-HOOK_ANGLES = (20, 160, 230, 310)   # 0/180 = plug slot/button height, 270 = USB plug, 315 = passives, 53..127 = lug
+HOOK_W = 5.0
+HOOK_T = 1.0                      # arm thickness (outer face 0.25 off the wall)
+HOOK_ANGLES = (20, 160, 230, 310)   # 180 = button height, 270 = USB-C, 315 = passives, 53..127 = lug
 LUG_HOOK_Y = LUG_IN_TOP - 4.0       # 2 more on the lug side walls, beside the battery
 HOOKS = [(RI, a, 0.0) for a in HOOK_ANGLES] + [(TAB_HALF, a, LUG_HOOK_Y) for a in (0, 180)]  # (wall, angle, y)
 GROOVE_R = RI + 0.7               # >=0.2 clearance including outer corners
@@ -187,7 +192,6 @@ def make_front_housing():
     body = Cylinder(RO, H, align=MIN).fuse(
         Pos(0, LUG_TOP / 2, 0) * extrude(RectangleRounded(2 * LUG_HALF, LUG_TOP, 3.0), H)).clean()
 
-    sw_y = SW_ACT_W + SW_TRAVEL + 0.4
     cuts = [
         zcyl(0, LCD_DY, WIN_D / 2, z(BEZEL_T) - 0.1, H + 1),                  # window
         Pos(0, LCD_DY, H - 0.2) * Cone(WIN_D / 2, WIN_D / 2 + 0.3, 0.3, align=MIN),  # window chamfer
@@ -202,12 +206,11 @@ def make_front_housing():
         # lug side hook grooves
         *[zbox(s * (TAB_HALF - 0.1), s * (TAB_HALF + 0.7), LUG_HOOK_Y - HOOK_W / 2 - 0.3,
                LUG_HOOK_Y + HOOK_W / 2 + 0.3, GROOVE[0], GROOVE[1]) for s in (-1, 1)],
-        # USB-C plug overmold pocket, down to the receptacle face
-        zbox(-USB_POCKET_W / 2, USB_POCKET_W / 2, -RO - 1, USB_FACE_Y,
-             Z_USB - USB_POCKET_H / 2, Z_USB + USB_POCKET_H / 2),
-        # USB plug anchor: old switch slot + thumb recess
-        zbox(RI - 1, RO + 1, -sw_y / 2, sw_y / 2, Z_MID - 0.7, Z_MID + 0.7),
-        zbox(RO - 0.9, RO + 1, -3.25, 3.25, Z_MID - 1.8, Z_MID + 1.8),
+        # USB-C: port-shaped hole through the wall, the shell slides in from inside
+        Pos(0, USB_FACE_Y + 3, Z_USB) * extrude(Plane.XZ * SlotOverall(8.94 + 2 * USB_FIT, 3.21 + 2 * USB_FIT), RO),
+        # XIAO USB end sunk into the wall: PCB outline + its edge parts, XIAO_FIT all round
+        Pos(0, USB_FACE_Y + 1.53 - XIAO_FIT + 5, XIAO_ORIGIN[2] - 2.0) * extrude(
+            RectangleRounded(17.78 + 2 * XIAO_FIT, 10, XIAO_PCB_R + XIAO_FIT), 2.5),
         # button hole + finger dimple
         zbox(-RO - 1, -RI + 1, -1.8, 1.8, Z_MID - 1.0, Z_MID + 1.0),
         Pos(-RO - 1, 0, Z_MID) * Rot(0, 90, 0) * Cylinder(3.2, 1.6, align=MIN),
@@ -217,11 +220,12 @@ def make_front_housing():
         # cover pry notch
         sector_box(RI - 0.5, RI + 1.0, 5.0, -1, 0.8, 230),
     ]
-    # motor locating ring on the lug front skin, wire gap toward the XIAO (also clears the tab tip)
+    # motor locating ring on the lug front skin, wire gap to the side; flattened where it would hit the tab tip
     zf = z(D_PCB_FRONT)
     ring = zcyl(0, MOTOR_Y, MOTOR_D / 2 + 1.05, zf - 1.0, zf + 0.1).cut(
         zcyl(0, MOTOR_Y, MOTOR_D / 2 + 0.25, zf - 2, zf + 1),
-        zbox(-2.5, 2.5, MOTOR_Y - 7, MOTOR_Y, zf - 2, zf + 1))
+        zbox(0, MOTOR_WIRE_SIDE * 7, MOTOR_Y - 2.5, MOTOR_Y + 2.5, zf - 2, zf + 1),
+        zbox(-7, 7, MOTOR_Y - 7, TAB_TOP, zf - 2, zf + 1))
     return body.cut(*cuts).fuse(ring).clean()
 
 
@@ -230,7 +234,7 @@ def make_midframe():
     th = TAB_HALF - 0.2
     deck = zcyl(0, 0, RI - 0.2, Z_DB, Z_DF).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, Z_DB, Z_DF))   # lug keys rotation
     # display clamp legs (press on the PCB edge ring, clear of the battery)
-    adds = [zcyl(*polar(17.6, a), 1.2, Z_DF - 0.1, z(D_PCB_BACK)) for a in (40, 140, 205, 335)]
+    adds = [zcyl(*polar(17.6, a), 1.2, Z_DF - 0.1, z(D_PCB_BACK) - LEG_SHORT) for a in (40, 140, 205, 335)]
     # XIAO: tape pad on the shield + stop rib at the antenna end
     shield_top = XIAO_ORIGIN[2] - XIAO_SHIELD_Y
     adds += [
@@ -254,10 +258,8 @@ def make_midframe():
     adds += [zbox(s * bx, s * (bx + 0.8), BAT_Y0 + 1.5, LUG_HOOK_Y - HOOK_W / 2 - 1.5, Z_DF - 0.1, Z_DF + 2.0)
              for s in (-1, 1)]
     deck = deck.fuse(*adds).clean()
-    cuts = [zbox(-USB_POCKET_W / 2 - 0.2, USB_POCKET_W / 2 + 0.2, -RI - 1, USB_FACE_Y + 0.2,
-                 Z_DB - 1, Z_DF + 1)]                             # USB plug clearance
     # reset access: no power switch, so a pin through here (cover off) is the way out of a hung firmware
-    cuts.append(zcyl(XIAO_RST_X, USB_FACE_Y + XIAO_RST_DY, 1.0, Z_DB - 1, Z_DF + 1))
+    cuts = [zcyl(XIAO_RST_X, USB_FACE_Y + XIAO_RST_DY, 1.0, Z_DB - 1, Z_DF + 1)]
     cuts.append(battery_switch_slot(Z_DB - 1, Z_DF + 1))
     # pin holes through rail + deck (open at the back: pin tips sit on/above the cover)
     cuts += [zcyl(s * XIAO_PIN_X, XIAO_PIN_Y0 + 2.54 * i, PIN_HOLE_D / 2, Z_DB - 1, Z_DF + 10)
@@ -274,16 +276,13 @@ def make_back_cover():
     cover = Cylinder(RI - 0.2, COVER_T, align=MIN).fuse(zbox(-th, th, 0, LUG_IN_TOP - 0.2, 0, COVER_T))
     adds = []
     for r_wall, a, dy in HOOKS:
-        r_out = r_wall - 0.35
-        adds.append(Pos(0, dy, 0) * sector_box(r_out - 0.7, r_out, HOOK_W, COVER_T - 0.1, CATCH_Z1, a))
+        r_out = r_wall - 0.25
+        adds.append(Pos(0, dy, 0) * sector_box(r_out - HOOK_T, r_out, HOOK_W, COVER_T - 0.1, CATCH_Z1, a))
         profile = Plane.XZ * Polygon(
-            (r_out - 0.1, CATCH_Z0 - 0.8), (r_wall + 0.4, CATCH_Z0),
-            (r_wall + 0.4, CATCH_Z0 + 0.2), (r_out - 0.1, CATCH_Z1), align=None)
+            (r_wall - 0.45, CATCH_Z0 - 0.8), (r_wall + 0.4, CATCH_Z0),
+            (r_wall + 0.4, CATCH_Z0 + 0.2), (r_wall - 0.45, CATCH_Z1), align=None)
         adds.append(Pos(0, dy, 0) * Rot(0, 0, a) * extrude(profile, amount=HOOK_W / 2, both=True))
-    # the USB pocket floor (z 1.1) is below the cover top: relief for the TPU plug body
-    relief = zbox(-USB_POCKET_W / 2 - 0.2, USB_POCKET_W / 2 + 0.2, -RI - 1, USB_FACE_Y + 0.2,
-                  Z_USB - USB_POCKET_H / 2 - 0.3, COVER_T + 1)
-    return cover.fuse(*adds).cut(relief, battery_switch_slot(-1, COVER_T + 1)).clean()
+    return cover.fuse(*adds).cut(battery_switch_slot(-1, COVER_T + 1)).clean()
 
 
 def battery_switch_slot(z0, z1):
@@ -328,9 +327,6 @@ def gen_step():
     asm.add(make_front_housing(), "front_housing", color=srgb("#EDEAE2", 0.55))
     asm.add(make_midframe(), "midframe", color=srgb("#4F7CAC"))
     asm.add(make_back_cover(), "back_cover", color=srgb("#7A8B99"))
-    # loaded here: usb_plug.step.py imports this file
-    plug = load_source_module(HERE / "usb_plug.step.py").make_usb_plug()
-    asm.add(plug, "usb_plug_tpu", color=srgb("#E07A3A"))
 
     motor = zcyl(0, MOTOR_Y, MOTOR_D / 2, z(D_PCB_FRONT) - MOTOR_T, z(D_PCB_FRONT))
     battery = zbox(-BAT_W / 2, BAT_W / 2, BAT_Y0, BAT_Y0 + BAT_L, Z_DF, Z_DF + BAT_T)
@@ -357,9 +353,6 @@ def gen_step():
         # Q2 (SOT-23) + 100k on their own, beside the XIAO's D7/D8 pads
         asm.feature(zbox(9.5, 13.0, -3.0, 3.0, Z_DF, z(D_XIAO_BOT + 0.2)),
                     "q2_zone", color=srgb("#FF9800", 0.3)),
-        # fully inserted USB-C plug overmold (USB-IF max), front face at the receptacle face
-        asm.feature(zbox(-6.175, 6.175, USB_FACE_Y - 0.02, USB_FACE_Y - 12, Z_USB - 3.25, Z_USB + 3.25),
-                    "usb_c_plug_overmold", color=srgb("#9C27B0", 0.3)),
     ])
     return asm.build()
 

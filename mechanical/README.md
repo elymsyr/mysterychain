@@ -1,8 +1,8 @@
 # Mechanical
 
-Round 3D-printed case, Ø42.2 × 13.7 mm, with a keyring lug. Three printed parts that snap together, no screws, plus a tethered TPU USB-C plug. Everything assembles from the back.
+Round 3D-printed case, Ø42.2 × 13.7 mm, with a keyring lug. Three printed parts that snap together, no screws. Everything assembles from the back.
 
-**Status:** case v7.2 (battery beside the XIAO, reaching into a full-depth lug; flat back cover). First PLA test print 2026-10-16; its fit fixes are in (v7.1, see version history), reprint pending. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
+**Status:** case v7.4 (battery beside the XIAO, reaching into a full-depth lug; flat back cover; USB-C in a port-shaped wall hole). First PLA test print 2026-10-16; second PLA print 2026-10-24; fit fixes in v7.1, v7.3 and v7.4 (see version history), reprint pending. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
 
 | Front | Back | Internals (transparent) |
 | --- | --- | --- |
@@ -16,9 +16,8 @@ All dimensions below come from [`pet_case.step.py`](pet_case.step.py) (build123d
 | --- | --- |
 | `pet_case.step.py` | Parametric source (build123d) |
 | `pet_case.step` | Assembly STEP: printed parts + electronics + keep-out zones. Import into Onshape or any CAD. |
-| `usb_plug.step.py` / `usb_plug.step` | Tethered TPU USB-C plug (splash protection). Strap anchors in the old switch recess + slot (the wall slide switch is gone since v6: daily on/off is the button in firmware, the battery switch SW2 sits under the back cover since v7). |
 | `print_parts.py` | Exports the print files |
-| `pet_case_drawing.pdf` | 2D technical drawings, A3 2:1, first-angle: assembly + parts list, front housing, midframe, back cover. Current (v7.2). |
+| `pet_case_drawing.pdf` | 2D technical drawings, A3 2:1, first-angle: assembly + parts list, front housing, midframe, back cover. Current (v7.4). |
 | `pet_case.dxf.py` / `pet_case.dxf` | Drawing source (hidden-line projections of the model, ezdxf) and its DXF export with editable dimensions |
 | `print/` | `.3mf` and `.stl` per part, already in print orientation |
 | `parts/` | Vendor STEP models: Seeed XIAO nRF52840 Sense, Teyleten GC9A01 (`_nopins` = same model with the 7-pin header removed; the case uses this one) |
@@ -37,7 +36,7 @@ All dimensions below come from [`pet_case.step.py`](pet_case.step.py) (build123d
 | Front lip | 0.4, covers the glass edge by 0.3 |
 | Printed parts weight (PETG, 100% infill) | ~13 g max |
 
-**Coordinates:** origin at the display center, z = 0 back face, z = 13.74 front face. Looking at the display: **+Y up** (keyring lug and display tab), **−Y down** (USB-C), **+X right** (USB plug anchor), **−X left** (button).
+**Coordinates:** origin at the display center, z = 0 back face, z = 13.74 front face. Looking at the display: **+Y up** (keyring lug and display tab), **−Y down** (USB-C), **+X right**, **−X left** (button).
 
 ## Layer stack (front to back)
 
@@ -52,7 +51,7 @@ All dimensions below come from [`pet_case.step.py`](pet_case.step.py) (build123d
 | 11.54 – 12.54 | 1.00 | Midframe plate |
 | 12.54 – 13.74 | 1.20 | Back cover |
 
-The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swelling allowance points forward (to 7.04); behind the tab pads the wire joints need 2.5 (to 6.28), so 0.76 is spare. The thickness is set by the XIAO + the USB-C plug overmold (6.5 high, it reaches 0.15 short of the cover plane), not by the battery: a battery up to ~4.7 thick fits without changing anything.
+The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swelling allowance points forward (to 7.04); behind the tab pads the wire joints need 2.5 (to 6.28), so 0.76 is spare. The thickness is set by the XIAO + USB-C, not by the battery: a battery up to ~4.7 thick fits without changing anything.
 
 ## Printed parts
 
@@ -62,47 +61,41 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 - **Front lip** 0.4 with a Ø34.6 window: shows the active area (Ø32.05) and ~1.3 of the black ring, and hides the glass edge (Ø35.2), the gap around it and the LCD neck/FPC. The flat front face carries the screen protector.
 - Display seat: PCB step Ø38.6, LCD recess Ø36.0, clearance for the LCD neck/FPC bend (1.0 on every side, `NECK_GROW`) and the header's front solder joints (0.71 wall above them).
 - **Lug cavity** 23.36 wide, open to the back, up to y = 38.08: display tab, battery and motor. Its front skin is 2.18 thick.
-- **Motor ring** on the lug front skin past the tab tip: Ø10.5 inside, 1.0 high, 5 mm wire gap toward −Y.
-- **USB-C pocket** 13 × 7, down to the receptacle face, so the plug overmold (USB-IF max 12.35 × 6.5) seats fully. 1.1 of wall under it at the back face.
-- **USB plug anchor (+X):** the old switch opening, a 3.4 × 1.4 slot with a 6.5 × 3.6 × 0.9 recess outside. The plug's pad fills the recess and its barb snaps behind the wall.
+- **Motor ring** on the lug front skin past the tab tip: Ø10.5 inside, 1.0 high, 5 mm wire gap toward +X (`MOTOR_WIRE_SIDE`), flat where it meets the tab tip.
+- **USB-C hole:** port-shaped slot 9.34 × 3.61 (the shell 8.94 × 3.21 + 0.2, `USB_FIT`). The receptacle face sits 0.9 behind the outer wall at x = 0 (0.4 at the shell's sides) and never sticks out. The cable's overmold rests on the case: cables with a short or slim head seat best.
+- **XIAO pocket in the wall:** the XIAO's USB end is sunk into the wall (PCB corners reach the hook groove radius): PCB outline + 0.25 all round (`XIAO_FIT`), z = 4.7–7.2, so the PCB corners aren't squeezed. 0.78 of wall stays outside the corners.
 - **Button (−X):** 3.6 × 2.0 hole and a Ø6.4 finger dimple; the plunger sticks out ~0.3 from the dimple floor but stays ~0.3 below the outer surface. It's also the power button (hold ~1 s = on), so a flat surface in a pocket can't hold it down.
 - **Keyring slot** 10 × 3, oval, through the lug end. Bridge 2.4, web 1.2.
-- Hook groove on the inner wall (R20.0, z = 4.6–6.8; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.8–36.4).
+- Hook groove on the inner wall (R20.0, z = 6.1–8.3; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.3–36.9).
 - Pry notch at 230° on the back edge, 5 mm wide.
 
-**Midframe** (38.2 × 55.9 × 8.8)
+**Midframe** (38.2 × 55.9 × 7.3)
 
 - 1.0 plate: Ø38.2 disc + lug plate 22.96 wide, 0.2 clearance to the walls. The lug plate fixes the orientation (no key tabs).
-- **Display clamp legs:** Ø2.4 at r = 17.6, at 40°/140°/205°/335° (clear of the battery). They press on the display PCB edge; the LCD floats.
-- **XIAO:** two **pin rails** (x = ±6.75 … ±9.3, under both pin rows) with 7 + 7 Ø0.9 holes through rail and plate. The XIAO's header pins (spacer removed, cut 4.3 behind the PCB) press into them and carry the USB-C plug/unplug force. Rail tops stay 0.5 below the PCB for the pins' solder fillets. Plus the 8 × 8 tape pad (0.5 gap to the shield, 0.5 mm tape) and a 12 mm stop rib at the antenna end.
-- **Battery side ribs** on the front face: 0.8 thick, 2 high, at x = ±10.5, y = 9.1–30.6. End stops: the XIAO stop rib side (1.5 lead bend space) and the lug end wall.
+- **Display clamp legs:** Ø2.4 at r = 17.6, at 40°/140°/205°/335° (clear of the battery). They stop 1.5 short of the display PCB (`LEG_SHORT`, PLA print: too long); tape on the leg tips takes up the gap. The LCD floats.
+- **XIAO:** two **pin rails** (x = ±6.75 … ±9.3, under both pin rows) with 7 + 7 Ø1.2 holes through rail and plate (pins ~0.55 square). The XIAO's header pins (spacer removed, cut 4.3 behind the PCB) go into them and carry the USB-C plug/unplug force. Rail tops stay 0.5 below the PCB for the pins' solder fillets. Plus the 8 × 8 tape pad (0.5 gap to the shield, 0.5 mm tape) and a 12 mm stop rib at the antenna end.
+- **Battery side ribs** on the front face: 0.8 thick, 2 high, at x = ±10.5, y = 9.1–30.6. End stops: the XIAO stop rib side (3.5 lead bend space since v7.4) and the lug end wall.
 - **Backer block** behind the button takes the press force.
 - **Battery switch** (EG1390) lies flat on the front face beside the XIAO's D0–D6 edge, x = −13 … −9.5, y = −10.5 … −3.5, between two 0.8 end stops that take the slide force. Its actuator goes back through a 3.4 × 1.4 slot in the midframe and the cover.
 - **Reset hole** Ø2.0 over the XIAO reset button, 3.8 from the midframe back face to the button. Cover off, a SIM pin presses it: bootloader (double press), or a reset while USB is in.
-- USB plug clearance on the −Y edge; notches where the cover hooks pass.
+- Notches where the cover hooks pass.
 
-**USB plug** (TPU 95A, 29.4 × 25.2 × 9.3, [`usb_plug.step.py`](usb_plug.step.py))
+**Back cover** (38.7 × 57.0 × 7.6)
 
-- Body press-fits the 13 × 7 pocket (0.1 per side) and stops 0.4 short of the receptacle. The 0.8 flange over the pocket mouth seals on the outer wall (1.1 below the pocket: the flange stops at the back face).
-- Strap runs a quarter turn along the outer wall to the +X recess. The barb through the slot holds it, so the plug can't get lost.
-
-**Back cover** (38.4 × 57.0 × 6.1)
-
-- Flat 1.2 plate, same outline as the midframe (which lies directly on it). 0.4 relief under the USB pocket for the plug body.
+- Flat 1.2 plate, same outline as the midframe (which lies directly on it).
 - **Battery switch slot** 3.4 × 1.4 (lower right, seen from the back). The actuator tip is 0.2 below the cover face: a toothpick or SIM pin moves it, a piece of tape over the slot can't. Keep 3–4 mm of flat plate around it for the tape.
-- **Perimeter hooks:** 4 at **20° / 160° / 230° / 310°**, 4 mm wide. 0°/180° are at the plug slot / button height now, 270° hits the USB plug, 315° the passives.
-- **Lug hooks:** 2 on the lug side walls at y = 34.1, 4 mm wide, 0.63 beside the battery (0.23 while flexing).
-- Hook arm 0.7 thick, ~3.7 free length, 0.4 radial catch, 45° retention ramp (the cover can be removed).
+- **Perimeter hooks:** 4 at **20° / 160° / 230° / 310°**, 5 mm wide. 180° is at the button height, 270° at the USB-C, 315° the passives.
+- **Lug hooks:** 2 on the lug side walls at y = 34.1, 5 mm wide, 0.43 beside the battery.
+- Hook arm 1.0 thick, ~5.2 free length, 0.4 radial catch, 45° retention ramp (the cover can be removed).
 
 ## Component placement
 
 | Component | Position | Held by |
 | --- | --- | --- |
 | Display module | Front center, tab toward +Y (lug) | Housing step (front) + midframe legs (back). No load on the wires. |
-| XIAO | 3 mm behind the display, components facing back, USB-C on the −Y edge; x = 0, y = −18.2 … +4.3 | 14 header pins pressed into the midframe pin rails + tape pad + stop rib at the antenna end |
+| XIAO | 3 mm behind the display, components facing back, USB-C on the −Y edge, sunk into the wall; x = 0, y = −20.2 … +2.3 | 14 header pins pressed into the midframe pin rails + tape pad + stop rib at the antenna end |
 | Battery | Beside the XIAO, long side along Y: x = 0, y = 7.6 … 37.6, on the midframe front face; leads at the XIAO end | Side ribs + stop rib + lug end wall, thin foam tape; 0.5 side and 0.5 swelling clearance |
 | Motor | Lug front skin past the tab tip, x = 0, y = 32.4, in front of the battery | Ring + the motor's own adhesive |
-| USB plug (TPU) | −Y USB pocket, strap to the +X wall | Press fit + barb in the +X slot |
 | Button | −X wall, same depth | Wall hole + backer block |
 | Battery switch SW2 (EG1390) | Midframe front face, −X beside the XIAO: x = −13 … −9.5, y = −10.5 … −3.5; actuator −Z | Thin double-sided tape + 2 end stops |
 | Motor driver (BC337, R, D, C) | Beside the XIAO on +X, at the GND/3V3 pads: x = 9.5–14, y = −12 … −4.5, height ≤ ~4.3 | Soldered in free air, heat-shrink + Kapton. BC337 lying on its side; dry-fit the group, it's tight. |
@@ -122,22 +115,21 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 | Midframe and cover ↔ wall | 0.20 |
 | Battery (sides / swelling) | 0.5 / 0.5, then 0.76 to the tab wire zone |
 | Motor ↔ display tab tip | ~0.9 |
-| USB pocket ↔ plug overmold | 0.33 sides, 0.25 top/bottom |
+| USB-C shell ↔ wall hole / XIAO PCB ↔ wall pocket | 0.2 / 0.25 |
 | Button hole | ~0.2–0.3 |
 
-If the hooks are too tight or too loose, move the groove in 0.1 mm steps (`CATCH_Z0`, `GROOVE`). XIAO pins too tight / loose in the rails: `PIN_HOLE_D` in 0.05 steps.
+If the hooks are too tight or too loose, move the groove in 0.1 mm steps (`CATCH_Z0`, `GROOVE`). XIAO pins too tight / loose in the rails: `PIN_HOLE_D` in 0.05 steps. Display loose / cover won't close: `LEG_SHORT`. USB-C hole tight: `USB_FIT`; XIAO end pinched in the wall: `XIAO_FIT`.
 
 ## Assembly
 
 1. **XIAO pins:** insert a 2 × 7 male header (2.54) from the component side, solder it on the front, pull the black spacer off, cut the pins flush at the front (they face the display) and to **4.3 mm behind the PCB** (component side). Wires go onto the same pads from the front.
 2. **Solder everything else** (see [electronics bring-up](../electronics/bring-up.md)). Remove the display's 7-pin header first: pry the black plastic spacer off, cut the pins to ≤ 1 mm, solder the wires to the stubs and bend them flat along the PCB back toward the body (≤ 2.5 behind the PCB).
 3. **Display:** from the back. Tab into the lug pocket first, then seat the PCB on the step.
-4. **Motor:** into the ring on the lug front skin, adhesive side down, wires out through the gap toward the XIAO.
+4. **Motor:** into the ring on the lug front skin, adhesive side down, wires out through the gap on the +X side, then back over the tab.
 5. **Button:** into its wall hole from inside.
-6. **Midframe:** XIAO pins pressed into the rails (straight down, until the shield sits on the tape pad), battery between the side ribs (thin foam tape), leads bent at the XIAO end. Battery switch taped between its end stops, actuator into the slot; slide it once to check. Insert lug plate first; the backer block locks the button.
+6. **Midframe:** tilt the XIAO's USB-C into the wall hole, then press the pins into the rails (straight down, until the shield sits on the tape pad), battery between the side ribs (thin foam tape), leads bent at the XIAO end. Battery switch taped between its end stops, actuator into the slot; slide it once to check. Insert lug plate first; the backer block locks the button.
 7. **Back cover:** press it flat. 4 perimeter + 2 lug hooks click in.
-8. **USB plug:** push the barb through the +X slot from outside (tweezers help), seat the pad in the recess, then press the body into the USB pocket.
-9. **Screen protector:** clean the front face with IPA, centre a Ø38–40 round protector on the window, press the rim down all around.
+8. **Screen protector:** clean the front face with IPA, centre a Ø38–40 round protector on the window, press the rim down all around.
 
 To open: lift at the 230° notch with a fingernail or a small screwdriver.
 
@@ -147,22 +139,20 @@ To open: lift at the 230° notch with a fingernail or a small screwdriver.
 
 | Part | Face on the bed | Supports |
 | --- | --- | --- |
-| `front_housing` | Front face (clean window chamfer) | Probably none (USB and side holes are short bridges) |
+| `front_housing` | Front face (clean window chamfer) | None (USB-C hole has round ends, button hole is a short bridge) |
 | `midframe` | Plate, legs and ribs up | None |
 | `back_cover` | Plate, hooks up | None |
-| `usb_plug` (TPU 95A) | As modelled, flange + strap edge down | Small: under the plug body (1.0 above the bed) and the barb. Tune `BODY_FIT` / `BARB_OVER` after the first print. |
 
-PETG (hook arms are 0.7 mm, PLA may snap), 0.4 mm nozzle, 0.12–0.16 mm layers, 3–4 walls, 30% infill. Open the 3MF in Bambu/Orca/Prusa/Cura; send the STL to a print service.
+PETG (PLA works for test fits), 0.4 mm nozzle, 0.12–0.16 mm layers, 3–4 walls, 30% infill. Open the 3MF in Bambu/Orca/Prusa/Cura; send the STL to a print service.
 
-On the first print check: hook fit, display seating on its step, USB-C plug going all the way in.
+On the first print check: hook fit, display seating on its step, the XIAO's USB end free in its wall pocket, a USB-C cable clicking in and charging.
 
 ## Splash protection (IPX4 goal, not tested)
 
 | Opening | Sealed by |
 | --- | --- |
 | Display window | Screen protector bonded on the flat front face (2–3 mm adhesive band around the window) |
-| USB-C pocket | TPU plug flange |
-| Old switch slot | TPU plug pad + barb |
+| USB-C hole | **Open** (TPU plug dropped in v7.4) |
 | Button | **Open:** needs a cover sticker or TPU cap |
 | Battery switch slot | Piece of tape on the flat back cover (peel to switch) |
 | Back cover seam | **Open:** snap fit only, no gasket. Since v7 the seam is flat (one plane), so a gasket is possible. |
@@ -187,14 +177,14 @@ Uses the [text-to-cad](https://github.com/earthtojake/text-to-cad) `cad` skill s
 ```bash
 SKILLS=/path/to/text-to-cad/skills   # your text-to-cad checkout
 C=$SKILLS/cad/scripts
-~/.venvs/cad/bin/python $C/gen pet_case.step.py usb_plug.step.py --write   # STEP
-~/.venvs/cad/bin/python print_parts.py                     # STL + 3MF (all four parts)
+~/.venvs/cad/bin/python $C/gen pet_case.step.py --write   # STEP
+~/.venvs/cad/bin/python print_parts.py                     # STL + 3MF (all three parts)
 ~/.venvs/cad/bin/python $SKILLS/dxf/scripts/gen pet_case.dxf.py --write   # DXF
 ~/.venvs/cad/bin/python pet_case.dxf.py                    # drawing PDF
 ~/.venvs/cad/bin/python $C/inspect interfere pet_case.step --tolerance 0.0001 --format text
 ```
 
-Expected interference: battery inside its safe zone, TPU plug inside the USB overmold keep-out (they never coexist), TPU plug press fit in the housing (~6.6 mm³), display tab resting on the lug floor (~0 mm³), hook catches preloading the housing groove edge (~0.1 mm³).
+Expected interference: battery inside its safe zone, display tab resting on the lug floor (~0 mm³), hook catches preloading the housing groove edge (~0.2 mm³), lug hook arms 0.07 into the battery safe zone (~3 mm³).
 
 ## Version history
 
@@ -209,3 +199,5 @@ Expected interference: battery inside its safe zone, TPU plug inside the USB ove
 | v7 | Battery moved beside the XIAO, long side into the lug: thickness 18.24 → 13.74, length 54.4 → 65.8, same 402030. Lug full depth; flat back cover and midframe (lug plate keys them, key tabs dropped); cover posts dropped. Motor moved to the lug front skin. Hooks 0/180/225/315 → 20/160/230/310 + 2 lug side hooks (tab-tip hooks dropped). Midframe and cover print without supports. Reset hole in the midframe; Q2 gets its own spot beside D7. Battery switch back (EG1390, actuator through a slot in midframe + cover, under tape). |
 | v7.1 | PLA test-fit fixes: hook groove 0.6 toward the front (z 4.0–6.2 → 4.6–6.8) so the hooks preload the cover (it sat 0.52 loose); LCD neck/FPC pocket 1.0 larger all round (was +0.35). Drawings ported to v7. |
 | v7.2 | XIAO held by its header pins: two pin rails on the midframe, 14 Ø0.9 holes (tape alone would creep under repeated USB-C plugging). Tape pad kept for Z and vibration. |
+| v7.3 | PLA test-fit fixes: hook arms 0.7 × 4 → 1.0 × 5, catch + groove 1.5 toward the front (longer arm, same snap force, ~2.5× stronger root); display legs 1.5 shorter; XIAO pin holes Ø0.9 → Ø1.2; motor ring wire gap −Y → +X. |
+| v7.4 | TPU USB plug dropped (with its +X slot/recess, the cover relief and the midframe cut-out). USB-C pocket 13 × 7 → port-shaped hole 9.34 × 3.61. XIAO 2.0 toward the USB wall (face −18.2 → −20.2, 0.9 behind the outer surface), its USB end in a 0.25 wall pocket; battery and lug unchanged. |

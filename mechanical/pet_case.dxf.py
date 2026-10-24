@@ -19,13 +19,12 @@ from ezdxf.enums import TextEntityAlignment
 
 HERE = Path(__file__).resolve().parent
 pc = load_source_module(HERE / "pet_case.step.py")
-up = load_source_module(HERE / "usb_plug.step.py")
 
 SCALE = 2.0
 SW, SH = 420 / SCALE, 297 / SCALE      # A3 landscape in model units
 MM = 1 / SCALE                         # 1 mm on paper, in model units
 SHEET_GAP = 20
-REV, DATE, DRAWN = "v7.2", "2026-10-20", "O. Eren"
+REV, DATE, DRAWN = "v7.4", "2026-10-24", "O. Eren"
 FONT = "LiberationSans"
 
 H, RI, RO = pc.H, pc.RI, pc.RO
@@ -151,6 +150,7 @@ class Sheet:
                 continue
             if crop:
                 half = half.intersect(Plane(Vector(crop[0]), z_dir=view.Z) * Cylinder(crop[1], 200))
+                half = Compound(half) if isinstance(half, list) else half
             halves.append((half, fill))
         boundary = None
         if crop:
@@ -377,7 +377,8 @@ def sheet_front_housing(doc, idx, n):
     sh = Sheet(doc, idx)
     part = pc.make_front_housing()
     LT, LH, TH, LI = pc.LUG_TOP, pc.LUG_HALF, pc.TAB_HALF, pc.LUG_IN_TOP
-    z_usb0, z_usb1 = pc.Z_USB - pc.USB_POCKET_H / 2, pc.Z_USB + pc.USB_POCKET_H / 2
+    uw, uh = 8.94 + 2 * pc.USB_FIT, 3.21 + 2 * pc.USB_FIT        # port-shaped USB-C hole
+    z_usb0, z_usb1 = pc.Z_USB - uh / 2, pc.Z_USB + uh / 2
     z_bez, z_step = pc.z(pc.BEZEL_T), pc.z(pc.D_PCB_FRONT)
     g0, g1 = pc.GROOVE
     gy0, gy1 = pc.LUG_HOOK_Y - pc.HOOK_W / 2 - 0.3, pc.LUG_HOOK_Y + pc.HOOK_W / 2 + 0.3
@@ -405,7 +406,7 @@ def sheet_front_housing(doc, idx, n):
     sh.line(A.p(0, 0, -1.5), A.p(0, 0, H + 1.5), "CENTER")
     sh.dim(A.p(0, -RO, 0), A.p(0, -RO, H), A.p(0, -RO - 8, 0))
     sh.dim(A.p(0, -RO, 0), A.p(0, -RO, z_usb0), A.p(0, -RO - 3.5, 0))
-    sh.dim(A.p(0, -RO, z_usb0), A.p(0, -RO, z_usb1), A.p(0, -RO - 3.5, 0))
+    sh.dim(A.p(0, -RO, z_usb0), A.p(0, -RO, z_usb1), A.p(0, -RO - 3.5, 0), location=A.p(0, -RO - 3.5, z_usb1 + 2.2))
     sh.dim(A.p(0, -RO, 0), A.p(0, pc.USB_FACE_Y, z_usb0), A.p(0, 0, -3.5), vertical=True)
     sh.dim(A.p(0, LI - 2, z_step), A.p(0, LI - 2, H), A.p(0, LT + 3.5, 0))     # lug front skin
     sh.label(A.p(0, -RO - 13.5, H / 2), "SECTION A-A")
@@ -422,11 +423,11 @@ def sheet_front_housing(doc, idx, n):
     sh.dia(R.p(0, 0, 0), RI, 300, location=R.p(RO + 3, -RO - 1, 0))
     sh.label(R.p(0, -RO - 5, 0), "REAR")
 
-    # view D (from below): USB-C pocket
+    # view D (from below): USB-C hole
     D = sh.view(BOTTOM, 180, 75)
     sh.project(part, D)
     sh.line(D.p(0, 0, -1.5), D.p(0, 0, H + 1.5), "CENTER")
-    sh.dim(D.p(-pc.USB_POCKET_W / 2, -RO, z_usb0), D.p(pc.USB_POCKET_W / 2, -RO, z_usb0), D.p(0, 0, -3))
+    sh.dim(D.p(-uw / 2, -RO, pc.Z_USB), D.p(uw / 2, -RO, pc.Z_USB), D.p(0, 0, -3))
     sh.label(D.p(0, 0, -9), "VIEW D")
 
     # section B-B (y = 0, seen from +Y): front face at the bottom
@@ -443,23 +444,16 @@ def sheet_front_housing(doc, idx, n):
     sh.callout(B.p(*dc), dr, "C")
     sh.label(B.p(0, 0, H + 9), "SECTION B-B")
 
-    # detail C (5:1): hook groove + USB plug anchor slot, +X wall
+    # detail C (5:1): hook groove, +X wall
     s = 5 / SCALE
     C = sh.view(TOP, 86, 30, s=s, pivot=dc)
     sh.section(part, C, crop=(dc, dr))
     lf = {"dimlfac": 1 / s}
-    sw0, sw1, zm = pc.Z_MID - 0.7, pc.Z_MID + 0.7, pc.Z_MID
     x_in = RI - 1.4
     sh.dim(C.p(RI, 0, 0), C.p(RI, 0, g0), C.p(x_in, 0, 0), vertical=True, **lf)
     sh.dim(C.p(pc.GROOVE_R, 0, g0), C.p(pc.GROOVE_R, 0, g1), C.p(x_in, 0, 0), vertical=True, **lf)
-    sh.dim(C.p(RI, 0, sw0), C.p(RI, 0, sw1), C.p(x_in - 1.1, 0, 0), vertical=True, **lf)
     sh.dim(C.p(RI, 0, g1), C.p(pc.GROOVE_R, 0, g1), C.p(0, 0, g1 + 0.8),
            location=C.p(RI - 0.6, 0, g1 + 1.15), **lf)
-    sh.dim(C.p(RO, 0, zm - 1.8), C.p(RO, 0, zm + 1.8), C.p(RO + 1.3, 0, 0), vertical=True, **lf)
-    sh.dim(C.p(RO, 0, 0), C.p(RO, 0, zm), C.p(RO + 2.6, 0, 0), vertical=True, **lf)
-    sh.dim(C.p(RO - 0.9, 0, zm - 1.8), C.p(RO, 0, zm - 1.8), C.p(0, 0, zm - 2.5),
-           location=C.p(RO + 0.6, 0, zm - 2.15), **lf)
-    sh.line(C.p(RI - 0.6, 0, zm), C.p(RO + 0.6, 0, zm), "CENTER")
     cx, cy = C.p(*dc)
     sh.label((cx, cy - dr * s - 8 * MM), "DETAIL C", "5:1")
 
@@ -472,7 +466,8 @@ def sheet_front_housing(doc, idx, n):
         "4. Window %%c34.6 (0.4 lip over the glass edge), centred 0.335 below the body axis (toward USB-C).\\P"
         f"5. Hook groove R{pc.GROOVE_R:.1f} x z {g0:.1f}-{g1:.1f} (detail C); lug side grooves 0.7 deep, "
         f"y {gy0:.1f}-{gy1:.1f}. Pry notch 5 x 0.8 at 230 deg.\\P"
-        "6. USB plug anchor slot 3.4 x 1.4 + recess (+X); button hole 3.6 x 2.0, %%c6.4 dimple (-X).\\P"
+        f"6. USB-C hole {uw:.2f} x {uh:.2f} slot (port shape, view D); the XIAO's USB end sits in a wall pocket "
+        f"(PCB outline + {pc.XIAO_FIT}). Button hole 3.6 x 2.0, %%c6.4 dimple (-X).\\P"
         f"7. LCD recess %%c36 (USB half), R{pc.LCD_D / 2 + 0.2 + pc.LCD_TOP_GROW:.1f} on the tab half, "
         f"both from the window centre; inner corners to the neck pocket R{pc.LCD_CORNER_R:.1f}.\\P"
         f"8. LCD neck / FPC pocket: neck outline + {pc.NECK_GROW:.1f} all round. Motor ring %%c10.5 x 1.0 "
@@ -486,14 +481,13 @@ def sheet_midframe(doc, idx, n):
     RD = RI - 0.2
     th, LIT = pc.TAB_HALF - 0.2, pc.LUG_IN_TOP - 0.2
     zf, zb = pc.Z_DF, pc.Z_DB
-    z_top = pc.z(pc.D_PCB_BACK)
+    z_top = pc.z(pc.D_PCB_BACK) - pc.LEG_SHORT
     pad_y0 = pc.XIAO_ORIGIN[1] - 4.05
     rib_y0 = pc.XIAO_PCB_TOP_Y + 0.15
     rib_top = pc.z(pc.D_XIAO_BOT + 0.2)
     bx = pc.BAT_W / 2 + pc.BAT_GAP
     by0, by1 = pc.BAT_Y0 + 1.5, pc.LUG_HOOK_Y - pc.HOOK_W / 2 - 1.5
     rx, ry = pc.XIAO_RST_X, pc.USB_FACE_Y + pc.XIAO_RST_DY
-    uw = pc.USB_POCKET_W / 2 + 0.2
 
     # front view (display side)
     F = sh.view(FRONT, 38, 84)
@@ -522,7 +516,7 @@ def sheet_midframe(doc, idx, n):
     sh.dim(A.p(0, 20, zf), A.p(0, 20, zf + 2.0), A.p(0, LIT + 6, 0), location=A.p(0, LIT + 6, zf + 4.5))
     sh.label(A.p(0, -RD - 12, (zb + z_top) / 2), "SECTION A-A")
 
-    # rear view (mirrored): reset hole, battery switch slot, USB clearance
+    # rear view (mirrored): reset hole, battery switch slot
     R = sh.view(REAR, 128, 84)
     sh.project(part, R)
     sh.centerlines(R.p(0, 0, 0), RD + 1.5, 0)
@@ -530,7 +524,6 @@ def sheet_midframe(doc, idx, n):
     sh.dia(R.p(rx, ry, zb), 1.0, 135, location=R.p(rx + 6, ry + 8, zb))
     sh.dim(R.p(0, ry, zb), R.p(rx, ry, zb), R.p(0, -RD - 3, 0))
     sh.dim(R.p(rx, 0, zb), R.p(rx, ry, zb), R.p(-RD - 3.5, 0, 0), vertical=True)
-    sh.dim(R.p(uw, -RD, zb), R.p(-uw, -RD, zb), R.p(0, -RD - 6.5, 0))
     sh.leader(R.p(pc.SW_X, pc.SW_Y, zb), R.p(-RD - 1, 6, zb), "SLOT 1.4 x 3.4")
     sh.label(R.p(0, -RD - 11.5, 0), "REAR")
 
@@ -547,10 +540,10 @@ def sheet_midframe(doc, idx, n):
     sh.text(sh.at(183, 92), "ISOMETRIC (1.2:1)", h=3.5)
 
     sh.frame(PROJECT, "MIDFRAME", "MC-M-003", idx + 1, n, notes=NOTES_COMMON + (
-        "4. Display clamp legs 4x %%c2.4 at 40/140/205/335 deg press on the display PCB edge.\\P"
+        f"4. Display clamp legs 4x %%c2.4 at 40/140/205/335 deg, {pc.LEG_SHORT} short of the display PCB (tape).\\P"
         "5. The lug plate sets the orientation (no key tabs). Hook notches: 4 on the rim at 20/160/230/310 deg, "
         "2 on the lug sides.\\P"
-        "6. XIAO pin rails x = +-6.75..+-9.3, 2 x 7 holes %%c0.9 at x = +-7.62, pitch 2.54: the header pins press in "
+        f"6. XIAO pin rails x = +-6.75..+-9.3, 2 x 7 holes %%c{pc.PIN_HOLE_D} at x = +-7.62, pitch 2.54: the header pins press in "
         "and carry the USB-C force (tune PIN_HOLE_D). Tape pad 8 x 8 for 0.5 mm tape; stop rib 12 wide at the antenna end.\\P"
         "7. Battery side ribs 0.8 thick x 2 high. Battery switch EG1390 between two 0.8 end stops beside the "
         "XIAO, actuator through the 1.4 x 3.4 slot.\\P"
@@ -598,7 +591,7 @@ def sheet_back_cover(doc, idx, n):
     sh.line(B.p(0, 0, -1.5), B.p(0, 0, c1 + 1.5), "CENTER")
     sh.dim(B.p(-RD, 0, 0), B.p(RD, 0, 0), B.p(0, 0, -3.5), text="%%c<>")
     sh.dim(B.p(0, 0, c0), B.p(RI + 0.4, 0, c0), B.p(0, 0, c1 + 3), text="R<>")
-    dc, dr = (RI - 0.4, 0, 3.4), 4.0
+    dc, dr = (RI - 0.4, 0, c1 / 2), c1 / 2 + 0.5
     sh.callout(B.p(*dc), dr, "E")
     sh.label(B.p(0, 0, c1 + 10), f"SECTION B-B ({a} deg HOOK)")
 
@@ -607,12 +600,12 @@ def sheet_back_cover(doc, idx, n):
     E = sh.view(TOP, 124, 92, s=s, pivot=dc)
     sh.section(rp, E, crop=(dc, dr))
     lf = {"dimlfac": 1 / s}
-    ro = RI - 0.35
-    sh.dim(E.p(ro - 0.7, 0, c1), E.p(ro, 0, c1), E.p(0, 0, c1 + 0.7), **lf)
+    ro, ht = RI - 0.25, pc.HOOK_T
+    sh.dim(E.p(ro - ht, 0, c1), E.p(ro, 0, c1), E.p(0, 0, c1 + 0.7), **lf)
     sh.dim(E.p(ro, 0, c1), E.p(RI + 0.4, 0, c0), E.p(0, 0, c1 + 0.7), **lf)
-    sh.dim(E.p(ro - 0.7, 0, 0), E.p(ro - 0.7, 0, c1), E.p(ro - 1.6, 0, 0), vertical=True, **lf)
+    sh.dim(E.p(ro - ht, 0, 0), E.p(ro - ht, 0, c1), E.p(ro - ht - 0.9, 0, 0), vertical=True, **lf)
     sh.dim(E.p(RI + 0.4, 0, 0), E.p(RI + 0.4, 0, c0), E.p(RI + 1.1, 0, 0), vertical=True, **lf)
-    sh.dim(E.p(ro - 0.1, 0, c0 - 0.8), E.p(RI + 0.4, 0, c0), E.p(RI + 2.0, 0, 0), vertical=True, **lf)
+    sh.dim(E.p(RI - 0.45, 0, c0 - 0.8), E.p(RI + 0.4, 0, c0), E.p(RI + 2.0, 0, 0), vertical=True, **lf)
     cx, cy = E.p(*dc)
     sh.label((cx, cy - dr * s - 8 * MM), "DETAIL E", "10:1")
 
@@ -621,11 +614,11 @@ def sheet_back_cover(doc, idx, n):
     sh.text(sh.at(183, 94), "ISOMETRIC (1:1)", h=3.5)
 
     sh.frame(PROJECT, "BACK COVER", "MC-M-004", idx + 1, n, notes=NOTES_COMMON + (
-        f"4. Snap hooks 6x 4 wide: 4 on the rim at {'/'.join(str(h) for h in pc.HOOK_ANGLES)} deg, 2 on the lug "
+        f"4. Snap hooks 6x {pc.HOOK_W:g} wide: 4 on the rim at {'/'.join(str(h) for h in pc.HOOK_ANGLES)} deg, 2 on the lug "
         f"edges at y = {ly:.1f}; profile per detail E.\\P"
         "5. Retention ramp 45 deg: the cover is removable (pry at the housing notch, 230 deg). The housing groove "
         "edge sits 0.08 into the ramp, so the hooks pull the cover in.\\P"
-        "6. Battery switch slot 1.4 x 3.4 thru (tape over it); USB plug relief at 270 deg.\\P"
+        "6. Battery switch slot 1.4 x 3.4 thru (tape over it).\\P"
         "7. Print plate down, hooks up, no supports."), notes_at=(150, 75), notes_w=55)
     return sh
 
@@ -637,12 +630,11 @@ BOM = [
     (4, "GC9A01 1.28in round TFT", 1, "Teyleten Robot module, 7-pin header removed"),
     (5, "XIAO nRF52840 Sense", 1, "Seeed Studio; header pins in the midframe rails"),
     (6, "Vibration motor 10 x 3", 1, "Coin type, adhesive, in the lug skin ring"),
-    (7, "USB-C plug, tethered", 1, "TPU 95A, usb_plug.step"),
-    (8, "Tact switch 3 x 6", 1, "4.3 high; power + menu button"),
-    (9, "LiPo 402030", 1, "3.7 V ~200 mAh, 20 x 30 x 4, beside the XIAO"),
-    (10, "Round screen protector", 1, "%%c38-40, bonded on the front face"),
-    (11, "Slide switch EG1390", 1, "Battery switch, on the midframe (MC-M-003)"),
-    (12, "Male pin header 2 x 7, 2.54", 1, "On the XIAO, spacer off, 4.3 behind the PCB"),
+    (7, "Tact switch 3 x 6", 1, "4.3 high; power + menu button"),
+    (8, "LiPo 402030", 1, "3.7 V ~200 mAh, 20 x 30 x 4, beside the XIAO"),
+    (9, "Round screen protector", 1, "%%c38-40, bonded on the front face"),
+    (10, "Slide switch EG1390", 1, "Battery switch, on the midframe (MC-M-003)"),
+    (11, "Male pin header 2 x 7, 2.54", 1, "On the XIAO, spacer off, 4.3 behind the PCB"),
 ]
 
 
@@ -654,7 +646,7 @@ def sheet_assembly(doc, idx, n):
     battery = pc.zbox(-pc.BAT_W / 2, pc.BAT_W / 2, pc.BAT_Y0, pc.BAT_Y0 + pc.BAT_L, pc.Z_DF, pc.Z_DF + pc.BAT_T)
     parts = [(housing, (0, 0.125)), (mid, (90, 0.125)), (cover, (0, 0.07)),
              (pc.make_display(), "solid"), (pc.make_xiao(), "solid"), (motor, "solid"),
-             (up.make_usb_plug(), (45, 0.1)), (pc.make_button(), "solid"), (battery, "solid"),
+             (pc.make_button(), "solid"), (battery, "solid"),
              (pc.make_battery_switch(), "solid")]
     LT, LH = pc.LUG_TOP, pc.LUG_HALF
 
@@ -672,7 +664,7 @@ def sheet_assembly(doc, idx, n):
     sh.section(parts, A)
     sh.dim(A.p(0, -RO, 0), A.p(0, -RO, H), A.p(0, -RO - 4, 0))
     sh.balloon(A.p(0, pc.MOTOR_Y + 2, zs_ - 1.5), A.p(0, LT - 2, H + 6), 6)
-    sh.balloon(A.p(0, pc.BAT_Y0 + 12, pc.Z_DF + 2), A.p(0, pc.BAT_Y0 + 12, -6), 9)
+    sh.balloon(A.p(0, pc.BAT_Y0 + 12, pc.Z_DF + 2), A.p(0, pc.BAT_Y0 + 12, -6), 8)
     sh.label(A.p(0, -RO - 9, H / 2), "SECTION A-A")
 
     s = 4 / SCALE
@@ -684,8 +676,7 @@ def sheet_assembly(doc, idx, n):
     for target, at, k in (
         ((-RO + 0.4, 0, 11), (-RO - 1.8, 0, 11), 1), ((-12, 0, pc.Z_DB + 0.5), (-RO - 1.8, 0, 4.5), 2),
         ((-8, 0, 0.6), (-RO - 1.8, 0, 1), 3), ((-12, 0, pc.z(pc.D_PCB_BACK) + 0.8), (-12, 0, H + 3), 4),
-        ((2, 0, pc.XIAO_ORIGIN[2] - 1.5), (4, 0, H + 3), 5), ((RI - 0.6, 0, pc.Z_MID), (12, 0, H + 3), 7),
-        ((-RI + 1.2, 0, pc.Z_MID), (-RO - 1.8, 0, 8), 8),
+        ((2, 0, pc.XIAO_ORIGIN[2] - 1.5), (4, 0, H + 3), 5), ((-RI + 1.2, 0, pc.Z_MID), (-RO - 1.8, 0, 8), 7),
     ):
         sh.balloon(B.p(*target), B.p(*at), k)
     sh.label(B.p(0, 0, H + 8), "SECTION B-B", "4:1")
@@ -698,11 +689,10 @@ def sheet_assembly(doc, idx, n):
     sh.frame(PROJECT, "ASSEMBLY", "MC-M-001", idx + 1, n, notes=(
         "ASSEMBLY (all from the back)\\P"
         "1. Display (4), tab first into the lug pocket, PCB on the housing step.\\P"
-        "2. Motor (6) into the ring on the lug skin; button (8) into its wall hole.\\P"
-        "3. Midframe (2) with XIAO (5), battery (9) and battery switch (11).\\P"
+        "2. Motor (6) into the ring on the lug skin; button (7) into its wall hole.\\P"
+        "3. Midframe (2) with XIAO (5, USB-C into the wall hole), battery (8) and battery switch (10).\\P"
         "4. Back cover (3): 4 rim + 2 lug hooks snap into the housing grooves.\\P"
-        "5. USB plug (7): barb through the +X slot, then into the USB-C pocket.\\P"
-        "6. Screen protector (10) on the clean, dry front face.\\P"
+        "5. Screen protector (9) on the clean, dry front face.\\P"
         f"Overall %%c{2 * RO:.1f} x {RO + pc.LUG_TOP:.1f} x {H:.2f}. Section fill: grey = purchased parts."),
         notes_at=(172, 140), notes_w=33)
     return sh

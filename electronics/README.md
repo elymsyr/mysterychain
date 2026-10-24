@@ -61,7 +61,7 @@ flowchart LR
 | Double-sided tape | **0.5 mm** foam | XIAO to midframe pad |
 | Kapton tape | | Insulates the display back from the XIAO pads; protects the battery |
 | Key ring | wire ≤ 2.5 mm | Slot is 3 × 10 mm |
-| Filament | **PETG** + **TPU 95A** | PETG for the case (0.7 mm hook arms; PLA may snap), TPU for the tethered USB plug |
+| Filament | **PETG** | Case (PLA works for test fits) |
 | Screen protector | Round, Ø38–40 | Bonded on the front face of the case (v6) |
 
 **Battery switch:** the slide switch from the LilyPad switch board (EG1390), desoldered. Used as SW2 in the battery + line: common pin and one side pin, the other side pin cut off. Check its current rating covers ~200 mA (motor start + display + radio).
