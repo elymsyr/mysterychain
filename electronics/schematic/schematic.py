@@ -7,6 +7,7 @@ Output (this folder):
     schematic.svg/.png                transparent background
     schematic_white.svg/.png          white background
     schematic_pnp_white.svg/.png      bench variant, USB power (no battery), Q2 = BC327 PNP (`schematic.py pnp`; writes only these)
+    schematic_proto_white.svg/.png   first prototype with the parts in hand: Q2 = PJA3405, 5 mm tact button (`schematic.py proto0`)
 Source of truth: ../README.md (pinout, motor driver, power)
 """
 import sys
@@ -30,7 +31,7 @@ def unused(xy, side, s='unused'):
          halign='left' if side == 'right' else 'right')
 
 
-def draw(pnp=False):
+def draw(pnp=False, proto0=False):
     d = schemdraw.Drawing(show=False)
     with d:
         d.config(fontsize=11, unit=2.5)
@@ -85,10 +86,9 @@ def draw(pnp=False):
             hi, lo, ctl = q2.emitter, q2.collector, q2.base
         else:
             q2 = elm.PFet(bulk=False).right().reverse().anchor('drain').at((qx, u2.VCC.y + 0.6))
-            text((qx + 1.1, q2.gate.y), 'Q2\nAO3401A', 11, halign='left')
+            text((qx + 1.1, q2.gate.y), 'Q2\nPJA3405' if proto0 else 'Q2\nAO3401A', 11, halign='left')
             hi, lo, ctl = q2.source, q2.drain, q2.gate
         elm.Line().at((qx, u2.VCC.y)).to(lo)
-        elm.Dot().at((qx, u2.VCC.y))
         top = (qx, hi.y + 1.4)
         elm.Line().at(hi).to(top)
         elm.Dot().at(top)
@@ -106,7 +106,7 @@ def draw(pnp=False):
 
         # ---- U1 left: button and display control lines ----
         elm.Line().at(x.D0).left(0.8)
-        elm.Button().left().label('SW1\npower / tact button', loc='top')
+        elm.Button().left().label('SW1\npower / 5 mm tact button' if proto0 else 'SW1\npower / tact button', loc='top')
         elm.Line().left(0.6)
         elm.Ground()
         text((x.D0.x - 0.3, x.D0.y - 0.7), 'internal pull-up', 8, color='gray', halign='right')
@@ -139,7 +139,7 @@ def draw(pnp=False):
         # C1, C2: between 3V3 and GND, hold 3V3 up for the display
         c2 = elm.Dot().at((dxx - 3.0, rail))
         elm.Vdd().at(c2.center).label('3V3')
-        elm.Capacitor(polar=True).at(c2.center).down(3.0).label('C2\n100 µF', loc='bottom')
+        elm.Capacitor(polar=not proto0).at(c2.center).down(3.0).label('C2\n100 µF\nX5R 6.3 V' if proto0 else 'C2\n100 µF', loc='bottom')
         elm.Ground()
         elm.Line().at(c2.center).left(2.4)
         elm.Capacitor().down(3.0).label('C1\n100 nF', loc='bottom')
@@ -165,7 +165,9 @@ def draw(pnp=False):
 
         # ---- title and notes ----
         title_y = 20.0
-        title = 'MysteryChain — schematic, bench variant: USB power, Q2 = PNP  (v4, 23 Oct 2026)' if pnp else 'MysteryChain — schematic  (v4, 23 Oct 2026)'
+        title = ('MysteryChain — schematic, bench variant: USB power, Q2 = PNP  (v4, 23 Oct 2026)' if pnp else
+                 'MysteryChain — schematic, proto0: first prototype, parts in hand  (24 Oct 2026)' if proto0 else
+                 'MysteryChain — schematic  (v4, 23 Oct 2026)')
         text((-13.5, title_y), title, 16, halign='left')
         text((-13.5, title_y - 0.9), 'Pinout and notes: electronics/README.md · Build and tests: electronics/bring-up.md', 9,
              color='dimgray', halign='left')
@@ -183,7 +185,8 @@ def draw(pnp=False):
                'water or a hang. It charges only with SW2 on (the charger is on the XIAO side of SW2).'),
             'Q2 cuts the display: its backlight has no pin and draws ~15–25 mA whenever VCC is present. '
             'R3 keeps it off while D7 is not driven (reset, boot, System OFF with D7 HIGH). '
-            + ('Bench variant below.' if pnp else 'AO3401A SOT-23: 1 G, 2 S, 3 D.'),
+            + ('Bench variant below.' if pnp else 'PJA3405 SOT-23: 1 G, 2 S, 3 D (datasheet, marking A05).' if proto0
+               else 'AO3401A SOT-23: 1 G, 2 S, 3 D.'),
             'XIAO pins 1–14 are the edge pads, drawn as seen from the component side (USB-C up). '
             'In the case the component side faces the back, so seen from the front the left and right rows swap. BAT+ and BAT− are underside pads.',
             'Leave D9 unconnected: the display library claims it as MISO when it starts SPI. '
@@ -199,6 +202,12 @@ def draw(pnp=False):
                          '    TO-92 + R4 do not fit the Q2 spot in the case: bench only.\n'
                          '    No battery: VBAT reads the charger output and the charge LED may flicker; ignore both. '
                          'The low-battery cut-off stays off on USB.')
+        if proto0:
+            notes.append('proto0, parts in hand: Q2 PJA3405 (30 V 3.6 A P-MOSFET) in place of the AO3401A. RDS(on) is specified only down to VGS = −4.5 V, but VGS(th) ≤ 2.1 V and the typical curve carries amps at −3 V: at the display\'s 25–40 mA it drops well under 10 mV.\n    '
+                         'R1 1 kΩ, R2 10 kΩ 0805 SMD; R3 100 kΩ through-hole.\n'
+                         '    C2 is an X5R ceramic, non-polar: at 3.3 V DC bias expect only ~30–50 µF of the 100 µF, enough here.\n'
+                         '    SW1 is a 5 mm tact button (DSTK2983): with 4 legs, use two diagonal legs (check with a continuity test). '
+                         'The case is drawn for a 3×6×4.3 button, check the fit.')
         text((-13.5, -7.0), 'Notes\n' + '\n'.join(f'{i}. {n}' for i, n in enumerate(notes, 1)), 9, halign='left', valign='top')
     return d
 
@@ -327,6 +336,11 @@ if __name__ == '__main__' and sys.argv[1:] == ['pnp']:
     print(check(d, pnp=True), 'nets, match expected (PNP bench variant)')
     d.save(f'{OUT}_pnp_white.svg', transparent=False)
     d.save(f'{OUT}_pnp_white.png', transparent=False, dpi=150)
+elif __name__ == '__main__' and sys.argv[1:] == ['proto0']:
+    d = draw(proto0=True)
+    print(check(d), 'nets, match expected (proto0)')
+    d.save(f'{OUT}_proto0_white.svg', transparent=False)
+    d.save(f'{OUT}_proto0_white.png', transparent=False, dpi=150)
 elif __name__ == '__main__':
     d = draw()
     print(check(d), 'nets, match expected')

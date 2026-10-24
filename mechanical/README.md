@@ -2,7 +2,7 @@
 
 Round 3D-printed case, Ø42.2 × 13.7 mm, with a keyring lug. Three printed parts that snap together, no screws. Everything assembles from the back.
 
-**Status:** case v7.4 (battery beside the XIAO, reaching into a full-depth lug; flat back cover; USB-C in a port-shaped wall hole). First PLA test print 2026-10-16; second PLA print 2026-10-24; fit fixes in v7.1, v7.3 and v7.4 (see version history), reprint pending. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
+**Status:** case v7.4 (battery beside the XIAO, reaching into a full-depth lug; flat back cover; USB-C in a port-shaped wall hole). First PLA test print 2026-10-16; second PLA print 2026-10-24; fit fixes in v7.1, v7.3, v7.4 and v7.5 (see version history), reprint pending. v6 (battery stacked behind the XIAO, 18.24 thick) is in `archive/pet_case_v6.py`. Power on/off is the button in firmware (hold 3 s / ~1 s), with Q2 cutting the display; see [electronics](../electronics/README.md#power).
 
 | Front | Back | Internals (transparent) |
 | --- | --- | --- |
@@ -62,8 +62,8 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 - Display seat: PCB step Ø38.6, LCD recess Ø36.0, clearance for the LCD neck/FPC bend (1.0 on every side, `NECK_GROW`) and the header's front solder joints (0.71 wall above them).
 - **Lug cavity** 23.36 wide, open to the back, up to y = 38.08: display tab, battery and motor. Its front skin is 2.18 thick.
 - **Motor ring** on the lug front skin past the tab tip: Ø10.5 inside, 1.0 high, 5 mm wire gap toward +X (`MOTOR_WIRE_SIDE`), flat where it meets the tab tip.
-- **USB-C hole:** port-shaped slot 9.34 × 3.61 (the shell 8.94 × 3.21 + 0.2, `USB_FIT`). The receptacle face sits 0.9 behind the outer wall at x = 0 (0.4 at the shell's sides) and never sticks out. The cable's overmold rests on the case: cables with a short or slim head seat best.
-- **XIAO pocket in the wall:** the XIAO's USB end is sunk into the wall (PCB corners reach the hook groove radius): PCB outline + 0.25 all round (`XIAO_FIT`), z = 4.7–7.2, so the PCB corners aren't squeezed. 0.78 of wall stays outside the corners.
+- **USB-C hole:** port-shaped slot 9.64 × 3.91 (the shell 8.94 × 3.21 + 0.35, `USB_FIT`). The receptacle face sits 0.9 behind the outer wall at x = 0 (0.4 at the shell's sides) and never sticks out. The cable's overmold rests on the case: cables with a short or slim head seat best.
+- **XIAO pocket in the wall:** the XIAO's USB end is sunk into the wall (PCB corners reach the hook groove radius): PCB outline + 0.35 all round (`XIAO_FIT`), z = 4.7–7.2, so the PCB corners aren't squeezed. 0.68 of wall stays outside the corners.
 - **Button (−X):** 3.6 × 2.0 hole and a Ø6.4 finger dimple; the plunger sticks out ~0.3 from the dimple floor but stays ~0.3 below the outer surface. It's also the power button (hold ~1 s = on), so a flat surface in a pocket can't hold it down.
 - **Keyring slot** 10 × 3, oval, through the lug end. Bridge 2.4, web 1.2.
 - Hook groove on the inner wall (R20.0, z = 6.1–8.3; its back edge sits 0.08 into the retention ramp, so the hooks pull the cover in), plus a 0.7 groove on each lug side wall (y = 31.3–36.9).
@@ -115,7 +115,7 @@ The battery lies on the midframe beside the XIAO, not behind it. Its 0.5 swellin
 | Midframe and cover ↔ wall | 0.20 |
 | Battery (sides / swelling) | 0.5 / 0.5, then 0.76 to the tab wire zone |
 | Motor ↔ display tab tip | ~0.9 |
-| USB-C shell ↔ wall hole / XIAO PCB ↔ wall pocket | 0.2 / 0.25 |
+| USB-C shell ↔ wall hole / XIAO PCB ↔ wall pocket | 0.35 / 0.35 |
 | Button hole | ~0.2–0.3 |
 
 If the hooks are too tight or too loose, move the groove in 0.1 mm steps (`CATCH_Z0`, `GROOVE`). XIAO pins too tight / loose in the rails: `PIN_HOLE_D` in 0.05 steps. Display loose / cover won't close: `LEG_SHORT`. USB-C hole tight: `USB_FIT`; XIAO end pinched in the wall: `XIAO_FIT`.
@@ -201,3 +201,4 @@ Expected interference: battery inside its safe zone, display tab resting on the 
 | v7.2 | XIAO held by its header pins: two pin rails on the midframe, 14 Ø0.9 holes (tape alone would creep under repeated USB-C plugging). Tape pad kept for Z and vibration. |
 | v7.3 | PLA test-fit fixes: hook arms 0.7 × 4 → 1.0 × 5, catch + groove 1.5 toward the front (longer arm, same snap force, ~2.5× stronger root); display legs 1.5 shorter; XIAO pin holes Ø0.9 → Ø1.2; motor ring wire gap −Y → +X. |
 | v7.4 | TPU USB plug dropped (with its +X slot/recess, the cover relief and the midframe cut-out). USB-C pocket 13 × 7 → port-shaped hole 9.34 × 3.61. XIAO 2.0 toward the USB wall (face −18.2 → −20.2, 0.9 behind the outer surface), its USB end in a 0.25 wall pocket; battery and lug unchanged. |
+| v7.5 | Second PLA print (thick nozzle): the XIAO's USB-C shell didn't go into the wall hole. `USB_FIT` 0.2 → 0.35 (hole 9.64 × 3.91), `XIAO_FIT` 0.25 → 0.35. |

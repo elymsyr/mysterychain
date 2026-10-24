@@ -68,8 +68,8 @@ XIAO_PCB_R = 1.905                        # PCB corner radius
 # USB-C front face in the assembly (world Y): 0.9 behind the outer wall at x=0; the PCB corners reach into
 # the hook groove radius (0.78 of wall left outside their pocket)
 USB_FACE_Y = -20.2
-USB_FIT = 0.2            # port-shaped hole around the USB-C shell (8.94 x 3.21), per side
-XIAO_FIT = 0.25          # wall pocket around the XIAO's USB end: the PCB corners must not be squeezed
+USB_FIT = 0.35           # port-shaped hole around the USB-C shell (8.94 x 3.21), per side (PLA test print, thick nozzle: 0.2 too tight)
+XIAO_FIT = 0.35          # wall pocket around the XIAO's USB end: the PCB corners must not be squeezed (was 0.25)
 XIAO_RST_X, XIAO_RST_DY = -5.7, 3.4       # reset button (Seeed STEP): world X, distance from the USB-C face
 # header pins (spacer removed, cut short) stuck into the midframe pin rails: they carry the USB-C plug force
 XIAO_PIN_X, XIAO_PIN_Y0, XIAO_PIN_N = 7.62, USB_FACE_Y + 4.45, 7   # world, rows at +-X, pitch 2.54 toward +Y
