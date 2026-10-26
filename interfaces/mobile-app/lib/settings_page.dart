@@ -138,16 +138,13 @@ class _SettingsPageState extends State<SettingsPage> {
         const Divider(),
         const SizedBox(height: 12),
         const Text('Screen off after', style: label),
-        const SizedBox(height: 8),
-        SegmentedButton<int>(
-          segments: const [
-            ButtonSegment(value: 30, label: Text('30 s')),
-            ButtonSegment(value: 60, label: Text('1 min')),
-            ButtonSegment(value: 300, label: Text('5 min')),
-          ],
-          selected: {s.screen},
-          emptySelectionAllowed: true, // an older board's 20 s matches none
-          onSelectionChanged: (v) => v.isEmpty ? null : screen(v.first),
+        RadioGroup<int>(
+          groupValue: s.screen, // an older board's 20 s matches none
+          onChanged: (v) => screen(v!),
+          child: Column(children: [
+            for (final (v, name) in [(30, '30 s'), (60, '1 min'), (300, '5 min')])
+              RadioListTile<int>(contentPadding: EdgeInsets.zero, value: v, title: Text(name)),
+          ]),
         ),
         const SizedBox(height: 12),
         const Text('Wake the screen', style: label),
