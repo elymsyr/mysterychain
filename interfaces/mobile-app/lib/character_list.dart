@@ -42,6 +42,8 @@ class CharacterList extends StatelessWidget {
       shake: now.shake,
       from: now.from,
       to: now.to,
+      screen: now.screen,
+      wake: now.wake,
       scene: now.scene,
       names: {...now.names, look: name},
     ));
@@ -81,6 +83,8 @@ class CharacterList extends StatelessWidget {
                     shake: s.shake,
                     from: s.from,
                     to: s.to,
+                    screen: s.screen,
+                    wake: s.wake,
                     scene: look,
                     names: s.names,
                   ));

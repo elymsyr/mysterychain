@@ -14,6 +14,9 @@ void main() {
     final s = parseSettings('settings vib=1 shake=0.45 night=23-7 scene=nausicaa name=Cat|Pavi 2|Nau')!;
     expect(s.names, {'cat': 'Cat', 'pavi': 'Pavi 2', 'nausicaa': 'Nau'});
     expect(nameOf(s), 'Nau');
+    expect((s.screen, s.wake), (20, wakeButton)); // older board
+    final w = parseSettings('settings vib=1 shake=0.45 night=23-7 screen=300 wake=6 scene=pavi name=Cat|Mio')!;
+    expect((w.screen, w.wake, w.scene, w.names['pavi']), (300, wakeShake | wakeLift, 'pavi', 'Mio'));
     expect(parseGame('game 12 best 40'), (score: 12, best: 40));
     expect(parseStats('stats x happy'), isNull);
     expect(parseSettings('button 3'), isNull);

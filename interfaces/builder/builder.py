@@ -76,6 +76,13 @@ class Builder(tk.Tk):
         for b in self.buttons:
             b.pack(side="left", padx=(0, 8))
 
+        # wireless adb: ip:port from Developer options → Wireless debugging (after `adb pair` once)
+        ttk.Button(row, text="Connect", command=self.connect).pack(side="right")
+        self.addr = tk.Entry(row, bg=BOX, fg=FG, insertbackground=FG, relief="flat", width=22,
+                             highlightthickness=0, font=("Monospace", 10))
+        self.addr.pack(side="right", padx=(0, 8), ipady=5)
+        self.addr.bind("<Return>", lambda e: self.connect())
+
         self.step_lbl = tk.Label(self, bg=BG, fg=DIM, anchor="w", text="Ready")
         self.step_lbl.pack(fill="x", pady=(14, 4))
         self.bar = ttk.Progressbar(self, maximum=100)
@@ -98,6 +105,21 @@ class Builder(tk.Tk):
         self.phone, self.xiao = ph, port
         self.phone_lbl.config(text=f"●  Phone   {ph or 'not connected'}", fg=OK if ph else BAD)
         self.xiao_lbl.config(text=f"●  XIAO    {port or 'not connected'}", fg=OK if port else BAD)
+
+    def connect(self):
+        addr = self.addr.get().strip()
+        if not addr:
+            return
+
+        def go():
+            try:
+                r = subprocess.run(["adb", "connect", addr], capture_output=True, text=True, timeout=10)
+                msg = (r.stdout + r.stderr).strip()
+            except (OSError, subprocess.TimeoutExpired) as e:
+                msg = str(e)
+            self.events.put(("log", msg))
+
+        threading.Thread(target=go, daemon=True).start()
 
     def pump(self):
         while not self.events.empty():

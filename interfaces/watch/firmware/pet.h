@@ -28,6 +28,8 @@ struct Saved {
   float shakeG = 0.5f;
   char names[LOOKS][13] = {PET_NAME, "Pavi", "Nausicaa", "Gandalf", "Sauron"};  // one per look (pets.h order); a single scene uses [0]
   uint8_t scene = 0;  // pets.h: which look the pet has (0 cat, 1 Pavi, 2 Nausicaa, 3 Gandalf, 4 Sauron)
+  uint8_t wake = 1;   // what lights the dark screen: WAKE_* bits (firmware.ino)
+  uint16_t screenS = 30;  // screen off after this many s without the button: 30, 60 or 300
 };
 Saved s;
 

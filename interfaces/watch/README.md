@@ -16,7 +16,8 @@ Every scene behaves the same way (screens: [docs/mockups/device_screens.png](../
 - **Button** (D0): the character cheers, motor buzzes once, `button N` is sent to the phone. Once the clock is set, a tap also shows the time (`14:32`) in the bubble for 3 s.
 - **Find** (`#find`): `FIND ME!` in the bubble, the motor buzzes twice and pauses, the screen colors invert twice a second. A button press stops it and sends `found`; `#find 0` stops it from the app; after `FIND_MS` (60 s) it stops by itself and sends `find timeout`. Shakes are ignored while it runs.
 - **Power** (button in firmware; the battery switch on the back stays on): hold the button 3 s to turn off (display cut by Q2 on D7, System OFF, a few µA). Hold ~1 s to turn on; a short tap leaves it off. Plugging in USB also turns it on, so uploads work with the case closed. Waking is a reset: the scene starts over.
-- **Screen off:** no movement (`MOVE_G`) and no button for 1 min: the display goes dark (Q2 cut), BLE stays up. Dark, the board sleeps up to `DARK_WAIT_MS` (1 s) at a time: the button and the IMU's wake-up engine (high-passed shake over the shake threshold, on INT1) wake it at once, and it asks the phone for slave latency (`BLE_DARK_LATENCY`), so the radio wakes ~every 240 ms instead of 30. A shake (`SHAKE_G`), the button or `#find` brings it back; the waking shake is not sent as `shake N`. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
+- **Screen off:** no button for 20 s (pets: 30 s, 1 or 5 min, `#set screen`): the display goes dark (Q2 cut), BLE stays up. Motion never keeps it lit: a keychain moves all day, and in the pocket it kept the screen on. What wakes it (pets: `#set wake`, any of button / shake / lift; other scenes: the button): shake is the IMU's wake-up function over the shake threshold, lift its tilt function (> 35°), both latched and checked every dark loop (up to `DARK_WAIT_MS` late); either one also fires in a moving pocket. Dark, the board sleeps up to `DARK_WAIT_MS` (1 s) at a time, the button wakes it at once, the accelerometer drops to 26 Hz low power (the pedometer still counts; no shakes or petting while dark), and it asks the phone for slave latency (`BLE_DARK_LATENCY`), so the radio wakes ~every 240 ms instead of 30. The button or `#find` brings it back. Turned off with the button, only the button turns it on (IMU unpowered in System OFF).
+- **Radio:** −4 dBm. Unconnected, it advertises every 20 ms for 30 s, then every 1 s.
 - **Battery** ([`battery.h`](firmware/battery.h)): a gauge at the bottom of the screen for `CLOCK_MS` after a tap, always while on USB (bolt; yellow and filling = charging, green and full = done) or below 15 % (red). The level comes from a LiPo curve, read every 5 s, not during a buzz. Without USB below `VBAT_OFF_MV` (3.4 V) it turns itself off; the button turns it on again only to go off once more until it's charged. PC check: `g++ -std=c++17 -I firmware test/battery_test.cpp -o /tmp/battery_test && /tmp/battery_test /tmp/battery.ppm` (the `.ppm` shows the four looks).
 - **Shake** (IMU): the scene reacts, `shake N (x.xx g)` is sent to the phone. Shakes are ignored for `MOTOR_MASK_MS` after the motor stops.
 - Serial monitor prints fps once a second.
@@ -65,9 +66,8 @@ Tunables at the top of `firmware.ino`:
 | `SHAKE_GAP_MS` | 400 | Minimum time between two shakes |
 | `MOTOR_MASK_MS` | 400 | Shake blackout after the motor stops. Use the value measured in bring-up T8. |
 | `ON_HOLD_MS` / `OFF_HOLD_MS` | 1000 / 3000 | Button hold to turn on / off |
-| `MOVE_G` | 0.15 | Movement that keeps the screen on. Must sit above the at-rest noise |
-| `IDLE_OFF_MS` | 60000 | Screen off after this long without movement or button |
-| `DARK_WAIT_MS` | 1000 | Screen off: longest sleep between loops (button and IMU wake it sooner) |
+| `IDLE_OFF_MS` | 20000 | Screen off after this long without the button (pets: `#set screen` instead) |
+| `DARK_WAIT_MS` | 1000 | Screen off: longest sleep between loops (the button wakes it sooner) |
 | `BLE_DARK_LATENCY` | 7 | Screen off: 30 ms connection events the radio may skip |
 | `CLOCK_MS` | 3000 | How long a button tap shows the time |
 | `MUSIC_PAUSE_MS` | 60000 | Pets: paused music keeps its screen this long, so a tap can resume it |
@@ -99,6 +99,8 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `#stats` | Pets: send `stats` now |
 | `#set vib 0\|1` | Pets: motor off / on (find always buzzes) |
 | `#set shake <g>` | Pets: shake threshold, 0.3–1.0 |
+| `#set screen 30\|60\|300` | Pets: screen off after this many s without the button |
+| `#set wake <bits>` | Pets: what wakes the dark screen, 1 button + 2 shake + 4 lift (1–7) |
 | `#set night <from h> <to h>` | Pets: night window (sleep + quiet); `from == to` = none |
 | `#set name <look> <text>` | `pets.h`: that look's own name, up to 12 characters (defaults `Cat`, `Pavi`, `Nausicaa`); a single-scene build takes `#set name <text>` |
 | `#set scene cat\|pavi\|nausicaa` | `pets.h`: the pet's look, at once and saved. Stats are shared, each look has its own name and high score; a running game ends |
@@ -112,7 +114,7 @@ Plain UTF-8 text over Nordic UART. A message ends at a line break (the app sends
 | `media toggle` / `media next` | Pets: button tap / double tap on the music screen; the app plays/pauses or skips the playing session |
 | `find timeout` | Find stopped by itself after `FIND_MS` |
 | `stats <steps> <mood> <battery %>` | Pets: after `#time`, on `#stats`, after a feed, and once a minute if a value changed; battery -1 = on USB |
-| `settings vib=<0\|1> shake=<g> night=<from>-<to> scene=<look> name=<cat>\|<pavi>\|<nausicaa>` | Pets: after `#time` and every `#set`; one name per look in `pets.h` order (a single-scene build sends one) |
+| `settings vib=<0\|1> shake=<g> night=<from>-<to> screen=<s> wake=<bits> scene=<look> name=<cat>\|<pavi>\|<nausicaa>` | Pets: after `#time` and every `#set`; one name per look in `pets.h` order (a single-scene build sends one) |
 | `fed` / `full` | Pets: answer to a feed (button or app) |
 | `best <cat>\|<pavi>\|...` | Pets: right after every `settings`; each look's high score in `pets.h` order (a single-scene build sends one) |
 | `game <score> best <best>` | Pets: game over |

@@ -10,7 +10,8 @@
 // double tap on the case = petting, IMU step counter, settings from the app, sky follows the clock, and a music
 // screen while the phone plays music (the character travels, the title scrolls over the sky; tap = play/pause, double tap =
 // next track).
-// No motion and no button for IDLE_OFF_MS: the screen goes dark (display cut by Q2); a shake or the button wakes it.
+// No button for IDLE_OFF_MS (pets: 30 s / 1 / 5 min from the app): the screen goes dark (display cut by Q2); the button
+// wakes it (pets: button, shake and/or lift, picked in the app; motion never keeps it lit: a keychain moves all day).
 // Motion is tied to real time: speed stays the same if fps drops. Serial monitor prints fps once a second.
 #include <Adafruit_TinyUSB.h>  // for Serial
 #include <Adafruit_GC9A01A.h>
@@ -31,9 +32,9 @@ const uint32_t SHAKE_GAP_MS = 400;   // don't count one shake several times
 const uint32_t MOTOR_MASK_MS = 400;  // ignore shakes this long after the motor stops (use the value measured in T8)
 const uint32_t CLOCK_MS = 3000;      // a button tap shows the time this long
 const uint32_t FIND_MS = 60000;      // find stops by itself after this long: a keychain out of reach mustn't drain the battery
-const float MOVE_G = 0.15;           // movement that keeps the screen on: |a| off 1 g by this much (check the at-rest noise)
-const uint32_t IDLE_OFF_MS = 60000;  // screen off after this long without movement or button
-const uint32_t DARK_WAIT_MS = 1000;  // screen off: the board sleeps this long between loops; button and IMU wake it at once
+const uint32_t IDLE_OFF_MS = 20000;  // screen off after this long without the button (lit ~25 mA: each second counts; pets: set from the app)
+const uint8_t WAKE_BTN = 1, WAKE_SHAKE = 2, WAKE_LIFT = 4;  // what wakes the dark screen (pets: #set wake, else the button)
+const uint32_t DARK_WAIT_MS = 1000;  // screen off: the board sleeps this long between loops; the button wakes it at once
 const uint16_t BLE_DARK_LATENCY = 7; // screen off: the radio may skip this many 30 ms connection events (data to send still goes at once)
 const uint32_t CALL_MS = 45000;      // a call rings at most this long if "#call 0" never comes (link lost mid-call)
 const uint32_t MUSIC_PAUSE_MS = 60000;  // pet scenes: paused music keeps its screen this long, so a tap can resume it
@@ -171,7 +172,12 @@ void motor(bool on) {
   uint8_t top = min(255.0f, 255 * MOTOR_MV / (vbat ? vbat : 4200));  // not read yet: assume full
   if (on && !was)
     for (uint32_t i = 0; i < MOTOR_RAMP_MS; i++) analogWrite(MOTOR, MOTOR_START + (top - MOTOR_START) * i / MOTOR_RAMP_MS), delay(1);
-  analogWrite(MOTOR, on ? top : 0);
+  if (on) analogWrite(MOTOR, top);
+  else if (was) {  // stop the PWM: left running at duty 0 it keeps the 16 MHz clock on, dark or not; the pin falls back to LOW
+    analogWrite(MOTOR, 0);
+    for (int i = 0; i < HWPWM_MODULE_NUM; i++)
+      if (HwPWMx[i]->pin2channel(MOTOR) >= 0) HwPWMx[i]->stop();
+  }
   was = on;
 }
 
@@ -243,9 +249,12 @@ void petLoad() {
   File f(InternalFS);
   pet::Saved t;
   if (f.open("/pet", FILE_O_READ)) {
-    if (f.read(&t, sizeof t) == sizeof t && t.version == pet::VERSION) pet::s = t;  // else: defaults
+    // a file from before screenS (shorter) keeps its stats; wake then sits in its old padding: checked below
+    if (f.read(&t, sizeof t) >= (int)offsetof(pet::Saved, screenS) && t.version == pet::VERSION) pet::s = t;  // else: defaults
     f.close();
   }
+  if (pet::s.screenS != 30 && pet::s.screenS != 60 && pet::s.screenS != 300) pet::s.screenS = 30;
+  if (!(pet::s.wake &= WAKE_BTN | WAKE_SHAKE | WAKE_LIFT)) pet::s.wake = WAKE_BTN;
   for (auto &n : pet::s.names) n[sizeof n - 1] = 0;
   bootSaved = pet::s.savedUnix;
   petLoaded = true;
@@ -282,8 +291,8 @@ void sendSettings() {
   const char *look = PET_NAME;
   const int looks = 1;
 #endif
-  int o = snprintf(line, sizeof line, "settings vib=%d shake=%.2f night=%d-%d scene=%s name=", pet::s.vib, pet::s.shakeG,
-                   pet::s.nightFrom, pet::s.nightTo, look);
+  int o = snprintf(line, sizeof line, "settings vib=%d shake=%.2f night=%d-%d screen=%d wake=%d scene=%s name=", pet::s.vib,
+                   pet::s.shakeG, pet::s.nightFrom, pet::s.nightTo, pet::s.screenS, pet::s.wake, look);
   for (int i = 0; i < looks; i++) o += snprintf(line + o, sizeof line - o, i ? "|%s" : "%s", pet::s.names[i]);  // per look
   snprintf(line + o, sizeof line - o, "\n");
   tell(line);
@@ -294,6 +303,7 @@ void sendSettings() {
 }
 
 void retint();
+void wakeSetup();
 #ifdef SCENE_PICK
 void pickScene() {  // the saved look on screen: scene, sky colors, palette, mood, a cheer to say hello
   scene::pick(pet::s.scene);
@@ -306,7 +316,9 @@ void pickScene() {  // the saved look on screen: scene, sky colors, palette, moo
 bool setting(const char *a) {  // "#set <a>"; false: not a setting, shows as text
   int x, y;
   if (sscanf(a, "vib %d", &x) == 1) pet::s.vib = x != 0;
-  else if (!strncmp(a, "shake ", 6)) pet::s.shakeG = constrain(atof(a + 6), 0.3, 1.0);  // atof: no float scanf in newlib-nano
+  else if (!strncmp(a, "shake ", 6)) pet::s.shakeG = constrain(atof(a + 6), 0.3, 1.0), wakeSetup();  // atof: no float scanf in newlib-nano
+  else if (sscanf(a, "screen %d", &x) == 1 && (x == 30 || x == 60 || x == 300)) pet::s.screenS = x;
+  else if (sscanf(a, "wake %d", &x) == 1 && x > 0 && x < 8) pet::s.wake = x, wakeSetup();
   else if (sscanf(a, "night %d %d", &x, &y) == 2 && x >= 0 && x < 24 && y >= 0 && y < 24) pet::s.nightFrom = x, pet::s.nightTo = y;
   else if (!strncmp(a, "name ", 5) && a[5]) {
     const char *v = a + 5;
@@ -410,6 +422,26 @@ void imuPetSetup() {  // LSM6DS3TR-C embedded functions: pedometer and double ta
   imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_THS_6D, TAP_THS);
   imu.writeRegister(LSM6DS3_ACC_GYRO_INT_DUR2, 0x4F);       // at 416 Hz: shock 58 ms, quiet 29 ms, single-tap shape
   // single tap only: the chip's own double tap never fired through the case (measured), doubleTap() pairs singles
+  wakeSetup();
+}
+
+// Shake / lift wake: the IMU's wake-up (slope over the shake threshold) and tilt (> 35 deg, the chip's own) functions,
+// latched like the tap and polled while dark (they run at 26 Hz too). Lift is tilt: a keychain has no wrist to raise.
+void wakeSetup() {
+  if (!imuOk) return;
+  uint8_t v = 0;
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_CTRL10_C);
+  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL10_C, pet::s.wake & WAKE_LIFT ? v | 0x08 : v & ~0x08);  // TILT_EN
+  // WK_THS: 1 LSB = 16 g / 64 = 0.25 g; 0 = off (it would fire on any motion)
+  imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, pet::s.wake & WAKE_SHAKE ? constrain(lroundf(pet::s.shakeG * 4), 1, 63) : 0);
+}
+
+bool motionWake() {  // a shake or lift since the last call (reading the sources clears the latches)
+  uint8_t wu = 0, fn = 0;
+  if (!imuOk) return false;
+  imu.readRegister(&wu, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);
+  imu.readRegister(&fn, LSM6DS3_ACC_GYRO_FUNC_SRC);
+  return (pet::s.wake & WAKE_SHAKE && wu & 0x08) || (pet::s.wake & WAKE_LIFT && fn & 0x20);  // WU_IA, TILT_IA
 }
 
 bool doubleTap() {  // reading TAP_SRC clears the latch, so it is read every loop
@@ -438,6 +470,22 @@ void petTick(uint32_t now) {  // once a second: stats, mood; steps, sky, save on
 }
 #endif
 
+uint32_t idleMs() {
+#ifdef SCENE_PET
+  return pet::s.screenS * 1000UL;
+#else
+  return IDLE_OFF_MS;
+#endif
+}
+
+bool wakeBy(uint8_t m) {
+#ifdef SCENE_PET
+  return pet::s.wake & m;
+#else
+  return m == WAKE_BTN;
+#endif
+}
+
 float shakeLimit() {
 #ifdef SCENE_PET
   return pet::s.shakeG;
@@ -446,7 +494,7 @@ float shakeLimit() {
 #endif
 }
 
-// Screen off: the board sleeps in a semaphore wait; the button and the IMU's wake-up engine (on INT1) end it at once.
+// Screen off: the board sleeps in a semaphore wait; the button ends it at once.
 SemaphoreHandle_t wakeSem;
 void wakeIsr() {
   BaseType_t woke = pdFALSE;
@@ -454,20 +502,12 @@ void wakeIsr() {
   portYIELD_FROM_ISR(woke);
 }
 
-void imuWakeSetup() {  // LSM6DS3TR-C wake-up: high-passed acceleration over WAKE_UP_THS, latched, on INT1
+void imuDark(bool dark) {  // dark: accel at 26 Hz low power (the pedometer still counts), lit: 416 Hz high performance for taps and shakes
   uint8_t v = 0;
-  imu.readRegister(&v, LSM6DS3_ACC_GYRO_TAP_CFG1);
-  imu.writeRegister(LSM6DS3_ACC_GYRO_TAP_CFG1, v | 0x91);  // interrupts on, HPF (not slope: too small at 416 Hz), latched
-  imu.readRegister(&v, LSM6DS3_ACC_GYRO_CTRL8_XL);
-  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL8_XL, v | 0x60);  // HPF at ODR/400 (~1 Hz): gravity out, a shake in
-  imu.writeRegister(LSM6DS3_ACC_GYRO_MD1_CFG, 0x20);       // INT1 = wake-up only
-  attachInterrupt(PIN_LSM6DS3TR_C_INT1, wakeIsr, RISING);
-}
-
-void imuWakeArm() {  // going dark: the threshold follows the shake setting (x 0.25 g at 16 g), old events cleared
-  uint8_t v = 0;
-  imu.writeRegister(LSM6DS3_ACC_GYRO_WAKE_UP_THS, constrain(int(shakeLimit() / 0.25f + 0.5f), 1, 63));  // bit 7 0: single tap only, as before
-  imu.readRegister(&v, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);  // reading clears the latch (and INT1)
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_CTRL1_XL);
+  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL1_XL, (v & 0x0F) | (dark ? 0x20 : 0x60));  // ODR_XL, range and bandwidth kept
+  imu.readRegister(&v, LSM6DS3_ACC_GYRO_CTRL6_C);
+  imu.writeRegister(LSM6DS3_ACC_GYRO_CTRL6_C, dark ? v | 0x10 : v & ~0x10);  // XL_HM_MODE: 1 = high performance off
 }
 
 void bleDark(bool dark) {  // dark: slave latency, the radio wakes ~every 240 ms instead of 30; lit: every event again
@@ -732,7 +772,6 @@ void powerOff() {
   while (digitalRead(BTN) == LOW) delay(10);  // System OFF with the button held = instant wake
   delay(50);
   detachInterrupt(BTN);  // only the System OFF wake sense on the button from here
-  if (imuOk) detachInterrupt(PIN_LSM6DS3TR_C_INT1);
   systemOff(BTN, LOW);
 }
 
@@ -750,6 +789,7 @@ void setup() {
     while (digitalRead(BTN) == LOW && millis() < ON_HOLD_MS) delay(10);
     if (millis() < ON_HOLD_MS) powerOff();
   }
+  flashSleep();  // the QSPI flash is unused (stats live in the internal flash): asleep while on too, ~25 uA
   Serial.begin(115200);
   displayOn();
   buildPal();
@@ -768,11 +808,11 @@ void setup() {
 #endif
   wakeSem = xSemaphoreCreateBinary();
   attachInterrupt(BTN, wakeIsr, FALLING);
-  if (imuOk) imuWakeSetup();
 
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);  // large MTU: long messages arrive in one write
   Bluefruit.autoConnLed(false);  // no blue LED blinking while advertising: it shows through the case and costs power
   Bluefruit.begin();
+  Bluefruit.setTxPower(-4);  // smaller radio pulses; 0 dBm if the closed-case range falls short
   Bluefruit.setName("MysteryChain");
   bleuart.begin();
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -780,6 +820,7 @@ void setup() {
   Bluefruit.Advertising.addName();           // name in the main packet so every scanner sees it (20/31 bytes)
   Bluefruit.ScanResponse.addService(bleuart);  // 128-bit UART UUID doesn't fit the main packet
   Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 1600);  // 20 ms for the first 30 s, then 1 s (was 152.5 ms): the phone reconnects within ~1 s
   Bluefruit.Advertising.start(0);
   while (digitalRead(BTN) == LOW) delay(10);  // the power-on hold is not a press
 }
@@ -916,8 +957,11 @@ void loop() {
   motor(finding ? f < 360 && f % 240 < 120 : e < buzzN * buzzPer && e % buzzPer < buzzOn);  // find: buzz-buzz, pause
   bool still = e >= buzzN * buzzPer + MOTOR_MASK_MS;  // motor vibration must not count as a shake or a tap
 
-  static uint32_t activeT = 0;  // last movement or button edge; finding keeps the screen on
-  if (changed || finding) activeT = now;
+  static uint32_t activeT = 0;  // last button edge (dark: only if the button wakes it); finding keeps the screen on
+  if ((changed && (dispOn || wakeBy(WAKE_BTN))) || finding) activeT = now;
+#ifdef SCENE_PET
+  if (!dispOn && imuOk && motionWake() && still) activeT = now;  // read even during a buzz: its latch must not wake later
+#endif
   static uint32_t shakes = 0, lastShake = 0, shakeT = 0;
   static float shakeDev = 0;
   static bool shakeWait = false;  // a shake detected at shakeT, counted SHAKE_DELAY later
@@ -925,7 +969,7 @@ void loop() {
   const uint32_t SHAKE_DELAY = SHAKE_WAIT_MS;
   bool dt = doubleTap();
   if (dt) Serial.printf("TAPDBG double still=%d find=%d btnAgo=%lu game=%d dark=%d\n", still, finding, now - btnT, scene::game.on, !dispOn);  // TAPDBG temp
-  if (dt && still && !finding && now - btnT > TAP_GUARD_MS && !scene::game.on) {  // petting
+  if (dt && dispOn && still && !finding && now - btnT > TAP_GUARD_MS && !scene::game.on) {  // petting (dark: the IMU runs too slow for taps)
     shakeWait = false;  // the "shake" was the tap
     scene::purr();
     pet::joy(pet::PET_JOY);
@@ -934,15 +978,9 @@ void loop() {
 #else
   const uint32_t SHAKE_DELAY = 0;  // no petting: a shake counts at once
 #endif
-  if (imuOk && !dispOn) {  // dark: no polling, the IMU's wake-up engine watches (imuWakeSetup())
-    uint8_t v = 0;
-    imu.readRegister(&v, LSM6DS3_ACC_GYRO_WAKE_UP_SRC);  // read every loop: clears the latch, the motor's too
-    if (v & 0x08 && !finding && still) activeT = now;    // WU_IA
-    lastShake = now;  // the waking shake is not a shake event
-  } else if (imuOk && !finding && still) {
+  if (imuOk && dispOn && !finding && still) {  // dark: no polling, shakes don't wake it
     float ax = imu.readFloatAccelX(), ay = imu.readFloatAccelY(), az = imu.readFloatAccelZ();
     float dev = fabsf(sqrtf(ax * ax + ay * ay + az * az) - 1.0f);
-    if (dev > MOVE_G) activeT = now;
     if (dev > shakeLimit() && now - lastShake > SHAKE_GAP_MS) {
       lastShake = now;
       if (!shakeWait) shakeWait = true, shakeT = now, shakeDev = dev;
@@ -956,10 +994,16 @@ void loop() {
   }
 
   readBattery(now, still);
-  if (dispOn && now - activeT >= IDLE_OFF_MS) {
+  if (dispOn && now - activeT >= idleMs()) {
     displayOff(), bleDark(true);
-    if (imuOk) imuWakeArm();
-  } else if (!dispOn && now - activeT < IDLE_OFF_MS) displayOn(), bleDark(false);
+    if (imuOk) imuDark(true);
+#ifdef SCENE_PET
+    if (imuOk) motionWake();  // the lit time's shakes and tilts don't count
+#endif
+  } else if (!dispOn && now - activeT < idleMs()) {
+    displayOn(), bleDark(false);
+    if (imuOk) imuDark(false);
+  }
   if (!dispOn) {
     xSemaphoreTake(wakeSem, pdMS_TO_TICKS(still && !finding ? DARK_WAIT_MS : 20));  // the motor runs: keep its pulses timed
     t0 = now, n = 0;  // no fps catch-up spam on wake

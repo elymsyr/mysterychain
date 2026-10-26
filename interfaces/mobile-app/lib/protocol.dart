@@ -1,8 +1,9 @@
 // The keychain's lines the app reads into records (interfaces/watch/README.md#protocol). Anything else is an event.
 
 typedef Stats = ({int steps, String mood, int? battery}); // battery %: -1 on USB, null from an older board
-// night from == to: no night window; scene: the pet's look (one of [looks]); names: each look's own name
-typedef Settings = ({bool vib, double shake, int from, int to, String scene, Map<String, String> names});
+// night from == to: no night window; screen: s lit after the button (30/60/300); wake: wakeButton|wakeShake|wakeLift bits; scene: the pet's look (one of [looks]); names: each look's own name
+typedef Settings = ({bool vib, double shake, int from, int to, int screen, int wake, String scene, Map<String, String> names});
+const wakeButton = 1, wakeShake = 2, wakeLift = 4; // firmware WAKE_*
 
 const looks = {'cat': 'Cat', 'pavi': 'Pavi', 'nausicaa': 'Nausicaa', 'gandalf': 'Gandalf', 'sauron': 'Sauron'}; // board order (firmware pets.h) and labels
 
@@ -15,14 +16,16 @@ Stats? parseStats(String line) {
 }
 
 Settings? parseSettings(String line) {
-  final m = RegExp(r'^settings vib=(\d) shake=([\d.]+) night=(\d+)-(\d+)(?: scene=(\w+))? name=(.*)$').firstMatch(line);
+  final m = RegExp(r'^settings vib=(\d) shake=([\d.]+) night=(\d+)-(\d+)(?: screen=(\d+) wake=(\d+))?(?: scene=(\w+))? name=(.*)$').firstMatch(line);
   if (m == null) return null;
-  final scene = m[5] ?? 'cat', parts = m[6]!.split('|'); // a board without the look switch is the cat
+  final scene = m[7] ?? 'cat', parts = m[8]!.split('|'); // a board without the look switch is the cat
   return (
     vib: m[1] == '1',
     shake: double.parse(m[2]!),
     from: int.parse(m[3]!),
     to: int.parse(m[4]!),
+    screen: int.parse(m[5] ?? '20'), // an older board: fixed 20 s, button only
+    wake: int.parse(m[6] ?? '$wakeButton'),
     scene: scene,
     names: parts.length == 1 ? {scene: parts[0]} : {for (final (i, l) in looks.keys.indexed) if (i < parts.length) l: parts[i]},
   );

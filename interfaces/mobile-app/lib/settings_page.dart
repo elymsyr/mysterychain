@@ -23,7 +23,14 @@ class _SettingsPageState extends State<SettingsPage> {
     widget.k.set(cmd, next);
   }
 
-  void night(int from, int to) => set('night $from $to', (vib: s.vib, shake: s.shake, from: from, to: to, scene: live.scene, names: live.names));
+  void night(int from, int to) => set('night $from $to', (vib: s.vib, shake: s.shake, from: from, to: to, screen: s.screen, wake: s.wake, scene: live.scene, names: live.names));
+
+  void screen(int v) => set('screen $v', (vib: s.vib, shake: s.shake, from: s.from, to: s.to, screen: v, wake: s.wake, scene: live.scene, names: live.names));
+
+  void wake(int bit, bool on) {
+    final w = on ? s.wake | bit : s.wake & ~bit;
+    set('wake $w', (vib: s.vib, shake: s.shake, from: s.from, to: s.to, screen: s.screen, wake: w, scene: live.scene, names: live.names));
+  }
 
   Widget hour(int v, void Function(int) on) => DropdownButton<int>(
         value: v,
@@ -113,7 +120,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: const Text('Vibration'),
           subtitle: const Text('Find always buzzes', style: hint),
           value: s.vib,
-          onChanged: (v) => set('vib ${v ? 1 : 0}', (vib: v, shake: s.shake, from: s.from, to: s.to, scene: live.scene, names: live.names)),
+          onChanged: (v) => set('vib ${v ? 1 : 0}', (vib: v, shake: s.shake, from: s.from, to: s.to, screen: s.screen, wake: s.wake, scene: live.scene, names: live.names)),
         ),
         const Divider(),
         const SizedBox(height: 12),
@@ -125,9 +132,34 @@ class _SettingsPageState extends State<SettingsPage> {
           max: 1,
           divisions: 14,
           label: s.shake.toStringAsFixed(2),
-          onChanged: (v) => setState(() => s = (vib: s.vib, shake: v, from: s.from, to: s.to, scene: live.scene, names: live.names)),
+          onChanged: (v) => setState(() => s = (vib: s.vib, shake: v, from: s.from, to: s.to, screen: s.screen, wake: s.wake, scene: live.scene, names: live.names)),
           onChangeEnd: (v) => set('shake ${v.toStringAsFixed(2)}', s),
         ),
+        const Divider(),
+        const SizedBox(height: 12),
+        const Text('Screen off after', style: label),
+        const SizedBox(height: 8),
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 30, label: Text('30 s')),
+            ButtonSegment(value: 60, label: Text('1 min')),
+            ButtonSegment(value: 300, label: Text('5 min')),
+          ],
+          selected: {s.screen},
+          emptySelectionAllowed: true, // an older board's 20 s matches none
+          onSelectionChanged: (v) => v.isEmpty ? null : screen(v.first),
+        ),
+        const SizedBox(height: 12),
+        const Text('Wake the screen', style: label),
+        const Text('At least one; motion wakes in the pocket too', style: hint),
+        for (final (bit, name) in [(wakeLift, 'When lifted'), (wakeShake, 'When shaken'), (wakeButton, 'With the button')])
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: Text(name),
+            value: s.wake & bit != 0,
+            onChanged: s.wake == bit ? null : (v) => wake(bit, v!), // the last one stays on
+          ),
         const Divider(),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
